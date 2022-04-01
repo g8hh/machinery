@@ -129,7 +129,7 @@ var cnItems = {
     "collecting 100 duotronic butterflies": "收集 100 只双电子蝴蝶",
     "Collecting 100 increments your Quantum Number": "收集 100 个增量你的量子数",
     "Collecting lifeforms impacts their population. Warping when the Repopulation value is below 100% will lead to lifeforms becoming unavailable during the next warp. Growing Repopulation to 100% or higher at any of the subsequent warps will restore them.": "收集生命形式会影响他们的人口。当 Repopulation 值低于 100% 时进行扭曲将导致生命形式在下一次扭曲期间变得不可用。在随后的任何经线中将再生人口增加到 100% 或更高将恢复它们。",
-    "Components": "成分",
+    "Components": "组件",
     "Components per cycle": "每个周期的组件",
     "Construct Shuttlebay": "建造 穿梭湾",
     "Control Panel": "控制面板",
