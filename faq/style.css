@@ -1,0 +1,163 @@
+body{
+	background-color:#000;
+	background-image: url("img/txture2.png");
+	font-size:14pt;
+	color:#ccc;
+	font-family: 'Montserrat', sans-serif;
+	margin:0;
+	padding:0;
+	overflow: auto;
+}
+
+button.button1_genRunning{
+	background-color:#000;
+	font-size:12pt;
+	color:#999;
+	border:1px solid #30b8d0;
+	animation: blink 960ms steps(2,end) infinite;
+}
+@keyframes blink {
+    0% {border-color:#999;color:#999;}
+    100% {border-color:#fff;color:#fff;}/*#00b1d0;*/
+}
+
+.sm{font-size:12pt;}
+tt{font-size:14pt;}
+
+.blue{color:#30b8d0;}
+.yellow{color:#dbd45f;}
+.red{color:#db3356;}
+.silver{color:#9f9f9f;}
+.purple{color:#c149ff;}
+.orange{color:#f48c37;}
+.green{color:#30d069;}
+
+.prestige_sign{color:#7f7f7f;font-size:9pt;}
+.header_title{font-size:16pt;color:#9f9f9f;}
+.subtitle{font-size: 20pt;color: #f48c37;padding:50px;text-align: center;}
+.title_quote{font-size: 16pt;color:#ccc;font-style:italic;text-align: center;width:40%;margin:auto;}
+.title1{font-size: 16pt;color:#30b8d0;text-align: left;margin-top: 80px;}
+.title2{font-size: 14pt;color:#f48c37;text-align: left; font-weight: bold;margin-top: 50px;}
+.title3{font-size: 14pt;color:#ccc;text-align: left; font-style: italic; text-decoration: underline;margin-top: 50px;}
+
+
+
+a.lv_site:link { color:#2992ec; text-decoration:none;padding:0; margin: 0;}
+a.lv_site:visited { color:#2992ec; text-decoration:none;padding:0; margin:0;}
+a.lv_site:hover { color:#2992ec; text-decoration:none;padding:0; margin:0;}
+
+a.lv_discord:link { color:#db3356; text-decoration:none;padding:0; margin: 0;}
+a.lv_discord:visited { color:#db3356; text-decoration:none;padding:0; margin:0;}
+a.lv_discord:hover { color:#db3356; text-decoration:none;padding:0; margin:0;}
+
+
+
+div.all{
+	width:90%;
+	margin:auto;
+	padding:0px;
+	display:block;
+	text-align: justify;
+	border:0px solid #777;
+}
+
+div.header{
+	font-size: 1pt;
+	top: 0%;
+	position: -webkit-sticky;
+	position: sticky;
+	margin: 0 auto 0 auto;
+	border: 0px;
+	border-bottom: 2px solid #9f9f9f;
+	text-align: center;
+	padding: 10px 0px 10px 0px;
+	width:100%;
+	background-color: #272727;
+	background-image: url("img/binding_dark.png");
+}
+
+
+div.ar{
+	background-color: #0c2e34;
+	margin-left: 50px;
+	font-size: 12pt;
+	padding: 5px;
+	border: 1px dashed #ccc;
+}
+
+div.block1{
+	width: 100%;
+	margin: auto;
+	padding: 10px;
+	border: 0px solid #777;
+}
+
+
+div.generator_strip_nuclear{
+	line-height: 22px;
+	background-color: #000;
+	background-repeat: repeat-x;
+	background-image: url("img/g_nuclear2.png");
+	background-size: contain;
+	border: 2px solid #555;
+}
+div.generator_strip_electric{
+	line-height: 22px;
+	background-color: #000;
+	background-repeat: repeat-x;
+	background-image: url("img/g_electric2.png");
+	background-size: contain;
+	border: 2px solid #555;
+}
+
+.generator_container_right{
+	overflow: hidden;
+	float: right;
+	width: 10em;
+	margin-left: 20px;
+	border: 2px solid #555;
+}
+
+.generator_container_left{
+	overflow: hidden;
+	float: left;
+	width: 10em;
+	margin-right: 20px;
+	border: 2px solid #555;
+}
+
+div.background_electric{
+	background-image: url("img/g_electric2.png");
+	background-repeat: repeat;
+	background-size: contain;
+	animation: conveyor 1s linear infinite;
+}
+
+div.background_nuclear{
+	background-image: url("img/g_nuclear2.png");
+	background-repeat: repeat;
+	background-size: contain;
+	animation: conveyor 5s linear infinite;
+}
+
+@keyframes conveyor {
+	0% {background-position: 0;}
+	100% {background-position: 98px;}
+}
+
+
+
+img.centered1{
+	display: block;
+	border: 1px solid #777;
+	margin: 50px auto 50px auto;
+	max-width:100%;
+}
+
+img.right1{
+	display: block;
+	border: 1px solid #777;
+	margin-left: 20px;
+	float: right;
+	max-width:100%;
+}
