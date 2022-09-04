@@ -1,3 +1,16 @@
+:root {
+  --blue:#30b8d0;
+  --yellow:#dbd45f;
+  --red:#db3356;
+  --silver:#9f9f9f;
+  --purple:#c149ff;
+  --orange:#f48c37;
+  --green:#30d069;
+  --lightgray:#999;
+  --gray:#777;
+  --darkgray:#555;
+}
+
 body{
 	background-color:#000;
 	background-image: url("img/txture2.png");
@@ -103,6 +116,13 @@ button.button3blue{
 	border:1px solid #666;
 	cursor: pointer;
 }
+button.button3gray{
+	background-color:#222;
+	font-size:9pt;
+	color:var(--lightgray);
+	border:1px solid #666;
+	cursor: pointer;
+}
 
 button.button4{
 	background-color:#000;
@@ -160,7 +180,83 @@ button.disabled7{
 	color:#555;
 	border:1px solid #555;
 }
+button.button8{/*prestige price buttons*/
+	background-color:#000;
+	font-size:9pt;
+	color:#999;
+	border:1px solid #999;
+	cursor: pointer;
+}
+button.disabled8{
+	background-color:#666;
+	font-size:9pt;
+	color:#333;
+	border:1px solid #333;
+}
+button.button9{/*power plant price button*/
+	background-color:#000;
+	font-size:11pt;
+	color:#999;
+	border:1px solid #999;
+	cursor: pointer;
+}
+button.disabled9{
+	background-color:#666;
+	font-size:11pt;
+	color:#333;
+	border:1px solid #333;
+}
+button.button10{/*ppa upgrades buttons*/
+	background-color:#000;
+	background-image: linear-gradient(#333, #111);
+	font-size:11pt;
+	color:var(--red);
+	border:1px solid #666;
+	cursor: pointer;
+}
+button.disabled10{
+	background-color:#666;
+	background-image: linear-gradient(#333, #111);
+	font-size:11pt;
+	color:#666;
+	border:1px solid #333;
+}
+button.activated10{
+	background-color:#222;
+	font-size:11pt;
+	color:var(--blue);
+	border:1px solid #666;
+}
 
+button.button11{
+	background-color:#222;
+	font-size:12pt;
+  font-weight: bold;
+	color:#333;
+	border:2px solid #444;
+}
+button.selected11{
+  background-color:#222;
+	font-size:12pt;
+  font-weight: bold;
+	color:var(--blue);
+	border:2px solid var(--silver);
+	cursor: pointer;
+}
+button.button12{/*rank block: show descr button*/
+	background-color:#000;
+	font-size:7pt;
+  font-weight: bold;
+	color:var(--darkgray);
+	border:1px solid var(--darkgray);
+	cursor: pointer;
+}
+button.button13{/* challenges done */
+	background-color:#000;
+	font-size:9pt;
+	color:var(--purple);
+	border:1px solid #555;
+}
 
 input.lever{
 	-webkit-appearance: none;
@@ -195,6 +291,8 @@ h1{font-size:15pt; color:#ccc; padding:0; margin:0;}
 h2{font-size:12pt; padding:0 0 0 0; margin:15px 0 0 0; text-align:center;}
 .mid{font-size:10pt;}
 .sm{font-size:7pt;}
+.sm2{font-size:9pt;}
+.sm_rank_desc{font-size:7pt;}
 
 .blue{color:#30b8d0;}
 .yellow{color:#dbd45f;}
@@ -203,10 +301,12 @@ h2{font-size:12pt; padding:0 0 0 0; margin:15px 0 0 0; text-align:center;}
 .purple{color:#c149ff;}
 .orange{color:#f48c37;}
 .green{color:#30d069;}
+.lightgray{color:#999;}
 .gray{color:#777;}
 .darkgray{color:#555;}
 .red_bold{color:#db3356;font-weight:bold;}
 .prestige_sign{color:#7f7f7f;font-size:9pt;}
+.watts_label{color:#30b8d0;font-size:18pt;}
 
 
 a.lv_site:link { color:#2992ec; text-decoration:none;padding:0; margin: 0;}
@@ -224,6 +324,24 @@ div.all{
 	display:block;
 	text-align: center;
 	border:0px solid #777;
+}
+
+.machines_icon_info{
+  color:#777;
+  position:absolute;
+  right:10px;
+  font-size:9pt;
+  letter-spacing:0.2em;
+  cursor:pointer;
+}
+.machine_title_min{/*minimizes the machine when clicked*/
+  cursor:pointer;
+}
+
+img.pp_item{
+	width: 90px;
+	border:1px solid #333;
+	background-repeat: repeat-x;
 }
 
 table.prestige_board{
@@ -253,6 +371,216 @@ table.prestige_board td.item{
 	padding: 10px;
 	border-radius: 18px;
 	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+table.prestige_board td.item2{
+	font-size:10pt;
+	color: #999;
+	vertical-align: top;
+	text-align: center;
+	background-color: #222;
+	border-collapse: collapse;
+	border:2px solid #1d7180;
+	padding: 10px;
+	border-radius: 18px;
+	box-shadow: 0 4px 8px 0 rgba(100, 100, 100, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+table.prestige_board td.item3{/* quantum upgrades */
+	font-size:10pt;
+	color: #999;
+	vertical-align: top;
+	background-color: #222;
+	border-collapse: collapse;
+	border:2px solid #777;
+	padding: 10px;
+	border-radius: 18px;
+	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  cursor: pointer;
+}
+table.prestige_board td.item3:hover{/* quantum upgrades */
+	font-size:10pt;
+	color: #999;
+	vertical-align: top;
+	background-color: #222;
+	border-collapse: collapse;
+	border:2px solid #1d7180;
+	padding: 10px;
+	border-radius: 18px;
+	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  cursor: pointer;
+}
+table.prestige_board td.item3_selected{/* quantum upgrades */
+	font-size:10pt;
+	color: #999;
+	vertical-align: top;
+	background-color: #222;
+	border-collapse: collapse;
+	border:2px solid var(--orange);
+	padding: 10px;
+	border-radius: 18px;
+	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  cursor: pointer;
+}
+table.prestige_board td.item4{/* warning */
+	font-size:10pt;
+	color: #999;
+	vertical-align: top;
+	background-color: #222;
+	border-collapse: collapse;
+	border:2px solid var(--red);
+	padding: 10px;
+	border-radius: 18px;
+	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  cursor: pointer;
+}
+
+
+
+table.prestige_board2{/*Power Plants*/
+	width:50%;
+	margin: auto;
+	margin-top: 30px;
+	font-size:12pt;
+	border-spacing: 15px;
+}
+table.prestige_board2 td.item3_pp{
+	font-size:16pt;
+	color: #999;
+	text-align: center;
+	background-color: #222;
+	border:2px solid #30b8d0;
+	padding: 5px;
+	border-radius: 5px;
+	box-shadow: 0 4px 8px 0 rgba(100, 100, 100, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+table.prestige_board2 td.item3_pp_plus{
+	font-size:11pt;
+	color: #999;
+	text-align: center;
+	background-color: #222;
+	border:2px solid #555;
+	padding: 5px;
+	border-radius: 5px;
+	box-shadow: 0 4px 8px 0 rgba(100, 100, 100, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+table.prestige_board2 td.item3_pp_plus:hover{
+	font-size:11pt;
+	color: #999;
+	text-align: center;
+	background-color: #222;
+	border:2px solid #30b8d0;
+	padding: 5px;
+	border-radius: 5px;
+	box-shadow: 0 4px 8px 0 rgba(100, 100, 100, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+table.prestige_board3{/*ppa upgrades*/
+	width:50%;
+	margin: auto;
+	margin-top: 30px;
+	font-size:12pt;
+	border-spacing: 0px;
+	border-collapse: collapse;
+}
+table.prestige_board3 td.header{
+	font-size:9pt;
+	color: var(--silver);
+	text-align: center;
+  vertical-align: top;
+	background-color: #222;
+	background-image: linear-gradient(#222, #333);
+	border:2px solid #555;
+	padding: 5px;
+	border-radius: 5px;
+	box-shadow: 0 4px 8px 0 rgba(100, 100, 100, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+table.prestige_board3 td.description{
+	font-size:9pt;
+	color: var(--silver);
+	text-align: center;
+	background-color: #333;
+	border:2px solid #555;
+	padding: 5px;
+	border-radius: 5px;
+}
+
+
+
+td.pp_quadrant{
+	background-image:url('img/g_electric2.png');
+	background-size:cover;
+	border:2px solid #333;
+}
+td.pp_plus{
+	background-size:cover;
+	border:2px solid #333;
+	font-size: 32pt;
+}
+
+table.ppa_upgrade_rank{
+	width:50%;
+	margin:auto;
+	font-size: 10pt;
+	letter-spacing: 0.2em;
+  border-spacing: 15px;
+}
+table.ppa_upgrade_rank td.active{
+  width:25%;
+  padding: 0px 2px;
+  color: var(--lightgray);
+  border:1px solid #222;
+  vertical-align: top;
+  background-color: #000;
+  animation: blink2 960ms steps(2,end) infinite;
+}
+table.ppa_upgrade_rank td.inactive{
+  width:25%;
+  padding: 0px 2px;
+  color: var(--lightgray);
+  border:1px solid #222;
+  vertical-align: top;
+  background-color: #000;
+}
+table.ppa_upgrade_rank td.active2{/*qm upgrade blocks*/
+  width:25%;
+  padding: 0px 2px;
+  color: var(--lightgray);
+  border:1px solid #222;
+  vertical-align: top;
+  background-color: #000;
+  animation: blink2 960ms steps(2,end) infinite;
+}
+table.ppa_upgrade_rank td.inactive2{
+  width:25%;
+  padding: 0px 2px;
+  color: var(--lightgray);
+  border:1px solid #222;
+  vertical-align: top;
+  background-color: #000;
+}
+
+@keyframes blink2 {
+  0% {background-color: #000;color:var(--lightgray);}
+  100% {background-color: #333;color:#fff;}
+}
+
+table.ppa_upgrade_rank2{/*second row, so that there is a kind of hex grid going*/
+	width:35%;
+	margin:auto;
+	font-size: 10pt;
+	letter-spacing: 0.2em;
+  border-spacing: 15px;
+}
+table.ppa_upgrade_rank2 td.active{
+  width:25%;
+  color: var(--lightgray);
+  border:1px solid var(--gray);
+  background-color: #000;
+  animation: blink2 960ms steps(2,end) infinite;
+}
+table.ppa_upgrade_rank2 td.inactive{
+  width:25%;
+  color: var(--lightgray);
+  border:1px solid var(--gray);
+  background-color: #000;
 }
 
 div.header{
@@ -326,6 +654,15 @@ div.prestige_header{
 	margin: 0 auto 0 auto;
 	width:100%;
 	border-bottom: 1px #9f9f9f solid;
+	background-image: url("img/txture.png");
+	background-color: #272727;
+}
+div.prestige_header2{/*interdimensional warp*/
+	font-size: 9pt;
+	top: 0%;
+	margin: auto;
+	width: 100%;
+	border-bottom: 2px #333 solid;
 	background-image: url("img/txture.png");
 	background-color: #272727;
 }
@@ -673,6 +1010,18 @@ table.menutabs{
 	background-image: url("img/txture.png");
 }
 
+.upgrade_description2{/*used in Radiator*/
+	width: 50%;
+	padding: 2px;
+	border: 0px solid #333;
+	color: #dbd45f;
+	font-size: 8pt;
+	letter-spacing: 0.2em;
+	text-align: center;
+	background-color: #000;
+	background-image: url("img/txture.png");
+}
+
 .tab_description{
 	padding: 0px;
 	border: 1px solid #333;
@@ -702,6 +1051,14 @@ table.menutabs{
 	display: block;
 	padding: 0px;
 	border: 1px solid #000;
+	color: #1a1a1a;
+	background-color: #1a1a1a;
+	cursor: pointer;
+}
+.color_block:hover{
+	display: block;
+	padding: 0px;
+	border: 1px solid var(--darkgray);
 	color: #1a1a1a;
 	background-color: #1a1a1a;
 	cursor: pointer;
@@ -995,6 +1352,44 @@ table.machine{
 	background-color: #111;
 }
 
+.machine_element7{/*gambling facility*/
+	padding: 10px;
+	font-size: 32pt;
+	color: #dbd45f;
+	letter-spacing: 0.2em;
+	border-left: 1px solid #1a1a1a;
+	border-right: 1px solid #1a1a1a;
+  border-top: 10px solid #1a1a1a;
+	border-bottom: 10px solid #1a1a1a;
+  background-image: url("img/black_lozenge.png");
+}
+.machine_element7_2{/*switch*/
+	padding: 10px;
+	font-size: 8pt;
+	color: #dbd45f;
+	letter-spacing: 0.2em;
+	border-top: 0px solid #333;
+	border-bottom: 0px solid #333;
+	border-left: 1px solid #1a1a1a;
+	border-right: 1px solid #1a1a1a;
+	background-color: #111;
+	background-image: radial-gradient(#222, #111);
+}
+
+.machine_element7_3{/*betting controls*/
+	width: 50%;
+	padding: 2px 2px 10px 2px;
+	border: 1px solid #1a1a1a;
+	color: var(--silver);
+	font-size: 12pt;
+	letter-spacing: 0;
+	text-align: center;
+	background-color: #000;
+	background-image: url("img/txture.png");
+}
+
+
+
 
 
 
@@ -1159,38 +1554,6 @@ div.shuttleport{
 	font-size: 5pt;
 	color: #fff;
 	background-image: radial-gradient(#222, #111);
-}
-
-.mc_screen{
-	width: 100%;
-	margin: auto;
-	padding: 5px 0px 5px 5px;
-	color:#30b8d0;
-	text-align: left;
-	background-color: #111;
-	border: 0px solid #777;
-}
-
-
-.space_station_window{
-	/*display: inline-block;so that the div expands with content and doesn't take the whole parent*/
-	border-radius: 15px;
-	width: 50%;
-	margin: auto;
-	padding: 10px;
-	color:#ccc;
-	font-size: 14pt;
-	vertical-align: center;
-	border: 4px solid #111;
-	background-color: #555;
-	background-repeat: repeat;
-	background-image: url("img/field.gif");
-	animation: stars 20s linear alternate infinite;
-}
-
-@keyframes stars {
-    from {background-position:right 0}
-    to {background-position: left 0}
 }
 
 

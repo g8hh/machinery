@@ -170,7 +170,7 @@ var cnItems = {
     "Its furnace must be kept at a working temperature of 3000+ °C. If it cools down, it will stop producing components and would require re-heating.": "它的炉子必须保持在3000+°C的工作温度。如果冷却下来，它将停止生产组件并需要重新加热。",
     "Join our Discord": "加入我们的Discord",
     "Keep in mind that 1 in 2000 is a fairly low probability and that the process is truly random. It's quite normal to have very long periods of time with the Magnetron being dormant, and sometimes having it getting armed quickly several times in a row. You can increase this probability through collecting Plasmic Frogs.": "请记住，2000 年中有 1 次是相当低的概率，并且该过程是真正随机的。磁控管长时间处于休眠状态是很正常的，有时它会连续几次快速启动。你可以通过收集等离子蛙来增加这个概率。",
-    "Let's go!": "我们走吧！",
+    "Let's go!": "让我们开始吧！！",
     "Lifeform upgrades": "生命形式升级",
     "Lifeforms Scanner": "生命形式扫描仪",
     "lists and tracks the status of low orbit missions.": "列出并跟踪低轨道任务的状态。",

@@ -1,5 +1,7 @@
-  var version="0.99.1";
-    var savefile_name="machineryGameData";
+  var version="0.99.5";
+    var savefile_name="machineryGameData0995";
+  var debug_mode=0;
+  var qkeycard=0;
 
   //PLAYER (includes parameters which are reset after prestige)
   var money=0;
@@ -8,10 +10,25 @@
   var antimatter=0;//prestige currency during the session
 
   var night_shift=0;//not set in Init(), changed through prestige
-  var chief=0;//whether you are chief engineer or not, which happens as soon as you build the space station for the first time
 
-  //fundamentals
-  var time_fundamental=1;//0.25
+  /*Chief Engineer automates the power plant. This is achieved through the chief_check flag.
+  I. Generator upgrades, rlab and power limit
+  All managed through auto-buy flags; the relevant warp upgrades are marked as sold from the start
+  II. Generator trigger
+  One(),Two(), etc. functions have a check for chief_check and trigger the button click events. Those events have checks in them to not do PlayAudio() if chief_check==1, otherwise it's a barrage of sounds in the beginning
+  Additionally, in autoPowerUpgrade() there's a check when buying supplies for two, three and four to trigger button click events if supply was 0, so as to start a new generator as soon as its supplies are available
+  III. overdrive trigger
+  Check is done in storeState()
+  IV. purchasing of the Battery and Magnetron, purchasing of Magnetron upgrades
+  The checks are done in storeState() and factoryState(), as additional conditions in the price checks
+  V. Magnetron trigger
+  The button is triggered from magnetronRequest()
+  VI. Automatic prestige
+  This is checked for in InventoryUpdate(). It sets chief_check=0, so as to fully stop the generators, calls a special function ccPrestige(), which calls the standard prestigeOk() function, then tries to buy ranks, then Magnetron warp upgrades, then calls rebootOk and triggers the chief_check back ON
+  */
+  var chief=0;//whether you are chief engineer or not
+  var chief_check=0;//whether everything should be automated
+  var chief_warp_check=0;//whether you should also warp; 1 by default
 
   //research lab
   var actions_cycle=0;//generator actions per cycle (currently unused)
@@ -23,12 +40,13 @@
   var rlab_autobuy_toggle_flag=0;
   var rlab_buy_cycle=0;//to avoid a barrage of purchases all at once
   var ogr=2;//overdrive price growth rate - not set in Init()
-
-  //status
-  var magicnumber=0;
+  var mT;//MersenneTwister
+    var researchSeed;
+    var researchRNG;//contains pre-generated rlab data
 
   //moneyCalc multipliers (ones that are always part of the moneyCalc formula)
   var magnetron_multiplier;
+  var am_radiation_multiplier=1;//set to 1 here; will be a different value only when antimatter_cubes==0, which is almost never, so I don't want to explicitly set it to 1 in nAC() every time
 
   //PRESTIGE (most items here are not reset after prestige)
   //these are set up here, outside of Init(), because they are consistent across prestige cycles
@@ -39,26 +57,44 @@
   var antimatter_cubes=0;//this is the currency that antimatter is converted into; it says how much all_time_antimatter has been actually converted through warping into cubes
   var antimatter_cubes_spent=0;//how much antimatter cubes was spent
   var all_time_money=0;//total money generated - across cycles
+  var ultimate_ratio;//this is the ratio of antimatter generated this run vs all_time_antimatter, expressed as percentage
     var prestige_multiplier=1;//this is the upgrade that increases the efficiency of the generators (amplifier)
     var money_limit_init=50;//this will depend on the prestige multiplier, so that people start with a larger power limit, so as not to click repeatedly
-    var money_limit_upgrade_price_init=10;
+    var money_limit_upgrade_price_init=10;//this will depend on the prestige multiplier too
 
     //PRESTIGE PRICES
-    var warp_magnetron_alerting_upgrade_price;
-    var warp_magnetron_duration_upgrade_price;
-    var warp_magnetron_multiplier_upgrade_price;
-    var warp_rank1_upgrade_price;
-    var warp_rank2_upgrade_price;
-    var warp_rank3_upgrade_price;
-    var warp_rank4_upgrade_price;
-    var warp_magicnumber_upgrade_price;
-      var warp_magicnumber_upgrade_flag=0;
-    var warp_panel1_upgrade_price;
-      var warp_panel1_upgrade_flag=0;
-    var warp_panel2_upgrade_price;
+    var warp_price=5;
+    var warp_price_rate=10;
+      var warp_panel1_upgrade_flag=1;
       var warp_panel2_upgrade_flag=0;
-    var warp_panel3_upgrade_price;
       var warp_panel3_upgrade_flag=0;
+      var warp_panel4_upgrade_flag=0;
+      var warp_rank1_training1_flag=0;
+      var warp_rank2_training1_flag=0;
+      var warp_rank2_training2_flag=0;
+
+      var warp_challenge1_flag=0;//0-cannot claim 1-can claim 2-claimed 3-failed
+      var warp_challenge2_flag=0;
+      var warp_challenge3_flag=0;
+      var warp_challenge4_flag=0;
+      var buff_challenge1_flag=0;//this is set to 3 in rebootOk(), since it's warpless; it's reset to 0 in quantum_wipe_upgrade; all this if buff_challenge1_flag!=1 or !=2
+      var buff_challenge2_flag=0;
+
+      var secret1_flag=0;
+      var secret2_flag=0;
+
+      /*
+      quantum_upgrade_flag[0] - Molten Core
+      quantum_upgrade_flag[1] - Non-organic Biology
+      quantum_upgrade_flag[2] - Zoo Keeper
+      quantum_upgrade_flag[3] - Solar Amplifier
+      quantum_upgrade_flag[4] - Particle Optimizer
+      quantum_upgrade_flag[5] - Synchrotron
+      */
+      var quantum_upgrade_flag=[0,0,0,0,0,0];
+      var quf_temp_bag=[0,0,0,0,0,0];
+
+
 
     //PRESTIGE SPECIAL VARIABLES
     var warp_max_magnetron_duration=60;//default max magnetron duration; later upgraded to 120
@@ -66,6 +102,25 @@
     var warp_magnetron_alerting=0;//default value, later upgraded to 1
 
     var prestige_flag=0;//to differentiate between inspecting prices and actually warping
+
+
+
+    //INTERDIMENSIONAL WARP
+    const POS_BASE_COST=1e6;//positron base cost
+    var positrons=0;//positrons generated this cycle
+    var all_time_positrons=0;
+    var positron_cubes=0;//cubes that were actually transfered, but this is currently not used and all_time_positron_cubes is used for everything instead, as we reset the amount of all_time_positron_cubes with every ppa_reset
+    var positron_cubes_spent=0;//cubes that were transferred and spent
+    var all_time_positron_cubes=0;//all time cubes created, regardless of whether they were transferred or spent
+    var prevPositronCubesCost=0;
+    var nextPositronCubesCost=0;
+
+    //Power Plant Arena (PPA)
+    var powerplants_amount=0;//amount of powerplants built
+    var time_fundamental=1;//0.25 when upgraded
+    var powerplants_multiplier=1;//quantum amplifier
+    var ppa_upgrade_price=1;
+
 
   //UPGRADES
   var money_limit;
@@ -129,7 +184,7 @@
   var machines_buymax_toggle_flag=0;
 
   var effectiveness_cycles=200;//the parameter for buymax for power
-  var supply_cycles=10;//the parameter for buymax for power
+  var supply_cycles=10;//the parameter for buymax for supply
   var effectiveness_tank_price;
   var supply_tank_price;
   var power_prices=[];
@@ -144,6 +199,7 @@
   var telescope_timer;
   var furnace_cooling_timer;
   var magnetron_interval;
+  var ppa_interval;
 
   //PRICES
   var one_price;//this is the supply limit for each generator. the naming is very confusing, for which I apologize, mostly to my future self, I guess
@@ -174,6 +230,7 @@
   var three_charge=0;
   var four_charge=0;
 
+
   //MACHINES
   //machine states
   var battery_state=0;//0 - locked, 1- unlocked
@@ -181,10 +238,9 @@
   var foundry_state=0;
   var engden_state=0;//this is not set in Init() and can be changed with prestige; this defines if you are at least rank1
   var lscanner_state=0;//same as above, defines rank2
-  var shuttlebay_state=0;
-  var mc_state=0;
-  var station_state=0;
-  var telescope_state=0;
+  var pc_state=0;
+  var radiator_state=0;
+  var gambling_state=0;
     //BATTERY
     var charge=0;
     var charge_limit=50;
@@ -193,16 +249,16 @@
     var battery_charge_percentage=0;
     var battery_charge_percentage_limit=1;
     var charge_throughput_upgrade_price;
-    var charge_throughput_magicnumber_flag=0;
     //MAGNETRON
-    var magnetron_unlock_upgrade_price;
+    var magnetron_unlock_upgrade_price=Math.pow(10,6);
     var device_magnetron_multiplier;//this holds the value of the multipler in the magnetron. magnetron_multiplier is only set to device_magnetron_multiplier for a limited duration
     var magnetron_duration;
     var magnetron_multiplier_upgrade_price;
     var magnetron_duration_upgrade_price;
-    var magnetron_probability_max;//how likely is the magnetron to be armed
+    var magnetron_probability_max=2000;//how likely is the magnetron to be armed
+    var magnetron_choice=999;//which symbol was chosen; 999 means no symbol is chosen
     //engden
-    var auxiliary_effectiveness;
+    var auxiliary_effectiveness=1;
     var auxiliary_effectiveness1;//for different levers. the final auxiliary_effectiveness is comprised of the two
     var auxiliary_effectiveness2;
     var auxiliary_probability_max=150;//how fast couplings get misaligned
@@ -216,7 +272,7 @@
     var animal5_auxiliary_effectiveness_modifier=0;//this is being added
     var animal6_components_multiplier=1;//this is being multiplied
     var animal7_battery_charge_multiplier=1;//this is being multiplied
-    var animal8_magicnumber_flag=0;//this is the only variable that is being saved, since it's a flag
+    var animal8_radiator_boost=0;//this is being added
     var recency=0;//whether the player rebooted recently or not, which affects how frequently they encounter lifeforms
     //foundry
     var foundry_components;//components
@@ -225,46 +281,32 @@
     var foundry_temperature;
     var foundry_components_cycle_upgrade_price;
     var foundry_components_multiplier;//how many components produced per cycle
+    var foundry_components_multiplier_qm=1;//quantum multiplier
     var foundry_production_flag;//whether the foundry is in production mode or not
     var fccu_stage;//handling the foundry progress bar
     var fccu_level;//handling the foundry progress bar
     var foundry_waste;
     var foundry_waste_limit;
-    //shuttlebay
-    var shuttlebay_unlock_upgrade_price;
-    var build_shuttle_upgrade_price;
-    var shuttle_capacity_upgrade_price;
-    var repair_shuttle_upgrade_price;
-    var shuttle_fleet={//this needs to be initiated here, since factoryState() checks for it
-          availability:['0','0','0','0','0'],
-        };
-    var bsu_stage;
-    var rsu_stage;
-    var repair_shuttle_flag=0;
-    var shuttle_capacity;
-    var shuttle_capacity_magicnumber_flag=0;
-    //mc
-    var mission_debris_launch_flag;
-    var mission_debris_amount;
-    var mission_debris_stage;
-      var mission_station_launch_flag;
-      var mission_station_status;
-      var mission_station_upgrade_price;
-      var mission_station_stage;
-    var mission_telescope_launch_flag;
-    var mission_telescope_status;
-    var mission_telescope_upgrade_price;
-    var mission_telescope_stage;
-    //telescope
-    var telescope_seconds_amount;
-    var telescope_stars_amount;
-    var telescope_galaxies_amount;
-    var telescope_stars_amount_limit;
-    var telescope_resolution_upgrade_price;
-    var telescope_resolution;//the maximum amount of stars discoverable in one cycle
-    var telescope_magicnumber_flag=0;//this is set here, as this is outside init functions
-
-
+    //radiator
+    var radiator_unlock_upgrade_price;
+    //these have to be set here as well, to ensure no edge cases lead to them being undefined
+    var radiator_one_multiplier=1;
+    var radiator_two_multiplier=1;
+    var radiator_three_multiplier=1;
+    var radiator_four_multiplier=1;
+    var radiator_boost=10;
+    var radiator_active=0;
+    var radiator_playhead=0;
+    //pc
+    var pc_seconds_amount;//amount of seconds, as opposed to pc_seconds, which is an html element
+    var pc_emission;
+    var pc_unlock_upgrade_price;
+    var pc_emission_upgrade_price;
+    var pc_emission_boost=1;//qm upgrade
+    //gambling facility
+    var gambling_choice=[];//the symbol that was chosen
+    var gambling_boosts=0;
+    var gambling_collect_flag=1;//whether a symbol was collected or not from the armed magnetron; default - 1
 
 
   //UI
@@ -281,6 +323,7 @@
     var audio_pbtick;
     var audio_bonus;
     var audio_initiated=0;
+    var audio_override=0;//click events cannot receive parameters, unless you use them to call an anonymous function. I don't want to move one_upgrade_supply_limit into an anonymous function; instead, I am using this lame ass flag to notify the click function that it is triggered by auto-buy, so it won't play the click sound effect
   var save_sec=60;
   var pb_one_width;
   var pb_money_width;
@@ -303,6 +346,15 @@
   var last_animal=999;
   var last_animal_id;
   var scientific_ui=0;//whether to show scientific format
+  var magnetron_probability_game_set=['⌽','⌓','⎔','⎊','⍿','⍙'];
+  var autobuy_purse=[0,0,0];
+  var rank_block_show_details_flag=0;
+          var battery_min_flag=0;
+          var magnetron_min_flag=0;
+          var gambling_min_flag=0;
+          var foundry_min_flag=0;
+          var radiator_min_flag=0;
+          var pc_min_flag=0;
 
   //OPTIMIZATIONS
   //to only check buttons on the open tab
@@ -313,6 +365,10 @@
   var three_ratios_flag;
   var four_ratios_flag;
 
+  //DEBUG
+  var test_interval=null;
+
+
   //CACHE
 
   //PRESTIGE CACHE
@@ -321,7 +377,6 @@
   var warp_rank3_upgrade;
   var warp_rank4_upgrade;
   var warp_wallpaper_upgrade;
-  var warp_magicnumber_upgrade;
   var warp_magnetron_alerting_upgrade;
   var warp_magnetron_duration_upgrade;
   var warp_magnetron_multiplier_upgrade;
@@ -358,10 +413,6 @@
   var foundry_block;
   var foundry_unlock_upgrade;
 
-  var shuttlebay_lock_block;
-  var shuttlebay_block;
-  var shuttlebay_unlock_upgrade;
-
   var battery_info_box;
   var battery_info_close;
   var battery_info;
@@ -375,6 +426,30 @@
   var auxiliary_effectiveness_label;
   var engden_title;
   var engden_block;
+
+  var radiator_block;
+  var radiator_lock_block;
+  var radiator_boost_label;
+  var radiator_button_left;
+  var radiator_button_right;
+  var radiator_unlock_upgrade;
+  var radiator_info_box;
+  var radiator_info_close;
+  var radiator_info;
+  var radiator_button_center;
+  var lamps_port;
+
+  var pc_info;
+  var pc_info_box;
+  var pc_info_close;
+  var pc_lock_block;
+  var pc_block;
+  var pc_unlock_upgrade;
+  var pc_seconds;
+  var pc_positrons_label;
+  var pc_positron_cubes_label;
+  var pc_emission_label;
+  var pc_emission_upgrade;
 
   //ALL CACHE
   var all;
@@ -529,29 +604,15 @@
   var engden_info_box;
   var engden_info_close;
   var engden_info;
-  var prestige_multiplier_label;
   var rank_infobox;
   var rank_infobox_cancel;
   var rank_description_label;
-  var bonus_multiplier_label;
   var furnace_screen;
   var foundry_components_multiplier_label;
   var foundry_components_cycle_upgrade;
   var foundry_components_label;
   var pb_components_multiplier_indicator;
   var pb_components_multiplier;
-  var shuttlebay_info;
-  var shuttlebay_info_close;
-  var shuttlebay_info_box;
-  var shuttlebay_block;
-  var shuttleport;
-  var build_shuttle_row;
-  var build_shuttle_upgrade;
-  var repair_shuttle_upgrade;
-  var pb_build_shuttle;
-  var pb_build_shuttle_indicator;
-  var pb_repair_shuttle_indicator;
-  var pb_repair_shuttle;
   var lscanner_info;
   var lscanner_title;
   var lscanner_block;
@@ -570,52 +631,7 @@
   var animal3_magnetron_multiplier_label;
   var animal7_battery_charge_multiplier_label;
   var animal6_components_multiplier_label;
-  var mc_info_box;
-  var mc_info_close;
-  var mc_info;
-  var shuttle_capacity_upgrade_label;
-  var shuttle_capacity_upgrade;
-  var mission_debris_block;
-  var mission_debris_upgrade_label;
-  var mission_station_block;
-  var mission_station_upgrade;
-  var mission_station_upgrade_label;
-  var station_lock_block;
-  var station_unlock_upgrade;
-  var station_block;
-  var station_info;
-  var station_info_box;
-  var station_info_close;
-  var pb_mission_debris_indicator;
-  var pb_mission_debris;
-  var mission_debris_launch;
-  var mission_debris_block_progress;
-  var mission_debris_shuttle_name;
-  var mission_station_block_progress
-  var mission_station_launch;
-  var pb_mission_station;
-  var pb_mission_station_indicator;
-  var mission_station_shuttle_name;
-  var mission_telescope_block;
-  var mission_telescope_block_progress;
-  var mission_telescope_launch;
-  var mission_telescope_upgrade_label;
-  var mission_telescope_shuttle_name;
-  var mission_telescope_upgrade;
-  var pb_mission_telescope;
-  var pb_mission_telescope_indicator;
-  var telescope_lock_block;
-  var telescope_block;
-  var telescope_unlock_upgrade;
-  var space_window;
-  var telescope_info;
-  var telescope_info_box;
-  var telescope_info_close;
-  var telescope_seconds;
-  var telescope_stars_amount_label;
-  var telescope_galaxies_amount_label;
-  var telescope_resolution_upgrade;
-  var telescope_resolution_label;
+  var animal8_radiator_boost_label;
   var one_price_label;
   var two_price_label;
   var three_price_label;
@@ -629,7 +645,6 @@
   var sup_two_label;
   var sup_three_label;
   var sup_four_label;
-  var eepc_label;
   var eepc_panel;
   var rlab_panel;
   var aa_panel;
@@ -650,6 +665,7 @@
   var magicnumber_infobox;
   var magicnumber_infobox_cancel;
   var warp_panel3_upgrade;
+  var warp_panel4_upgrade;
   var rlab_autobuy_toggle;
   var repopulation_label;
   var foundry_waste_label;
@@ -664,11 +680,310 @@
   var three_effectiveness_block;
   var four_effectiveness_block;
   var toggle_scientific;
+  var magnetron_probability_max_label;
+  var magnetron_probability_game_label;
+  var all_button8s;
+  var warp_rank1_training1_upgrade;
+  var warp_rank2_training1_upgrade;
+  var warp_rank2_training2_upgrade;
+  var battery_percent_down_down;
+  var battery_percent_up_up;
+  var warp_challenge1_upgrade;
+  var warp_challenge2_upgrade;
+  var positron_cubes_owned_label;
+  var establish_powerplant_upgrade;
+  var main_container;
+  var powerplant_arena;
+  var pp1;
+  var pp2;
+  var pp3;
+  var pp4;
+  var pp5;
+  var pp2_add;
+  var pp3_add;
+  var pp4_add;
+  var pp5_add;
+  var item3_pp_plus;
+  var item3_pp;
+  var pp_quadrant;
+  var ppa_upgrade0;
+  var ppa_upgrade1;
+  var ppa_upgrade2;
+  var ppa_upgrade3;
+  var ppa_upgrade4;
+  var ppa_upgrade0_title;
+  var ppa_upgrade1_title;
+  var ppa_upgrade2_title;
+  var ppa_upgrade3_title;
+  var ppa_upgrade4_title;
+  var ppa_upgrade1_rank_block;
+  var ppa_upgrade2_rank_block;
+  var ppa_upgrade3_rank_block;
+  var ppa_upgrade4_rank_block;
+  var chief_cc_info_box;
+  var chief_cc_info_close;
+  var chief_cc_info;
+  var chief_cc_block;
+  var chief_check_toggle;
+  var gambling_info_box;
+  var gambling_info_close;
+  var gambling_info;
+  var gambling_symbol_label;
+  var gambling_block;
+  var buff_challenge1_upgrade;
+  var buff_challenge2_upgrade;
+  var warp_qm1_upgrade;
+  var warp_qm2_upgrade;
+  var warp_qm3_upgrade;
+  var warp_qm4_upgrade;
+  var warp_qm5_upgrade;
+  var warp_qm6_upgrade;
+  var warp_challenge3_upgrade;
+  var warp_challenge4_upgrade;
+  var rank_block_show_details;
+  var rank_upgrade1_descr;
+  var rank_upgrade2_descr;
+  var rank_upgrade3_descr;
+  var sm_rank_desc;
+  var debug_mode_panel;
+  var rank_upgrade1_plank;
+  var rank_upgrade2_plank;
+  var rank_upgrade3_plank;
+  var debug_qkeycard_upgrade;
+  var debug_save_upgrade;
+  var debug_close_upgrade;
+  var debug_qkeycard2_upgrade;
+  var chief_warp_check_toggle;
+  var battery_body;
+  var magnetron_body;
+  var foundry_body;
+  var radiator_body;
+  var pc_body;
+  var battery_title;
+  var magnetron_title;
+  var foundry_title;
+  var radiator_title;
+  var pc_title;
+  var gambling_body;
+  var gambling_title;
+  var qm_rewards;
+  var qm1_rank_block;
+  var qm2_rank_block;
+  var qm3_rank_block;
+  var qm4_rank_block;
+  var qm5_rank_block;
+  var qm6_rank_block;
+  var rank_qm1_descr;
+  var rank_qm2_descr;
+  var rank_qm3_descr;
+  var rank_qm4_descr;
+  var rank_qm5_descr;
+  var rank_qm6_descr;
+  var rank_qm1_plank;
+  var rank_qm2_plank;
+  var rank_qm3_plank;
+  var rank_qm4_plank;
+  var rank_qm5_plank;
+  var rank_qm6_plank;
+  var warp_qm_table;
+  var quantum_wipe_upgrade;
+  var warp_qm_warning;
+  var warp_qm_warning_close;
+  var warp_qm_confirm;
+  var warp_qm_confirm_ok;
+  var warp_qm_confirm_cancel;
+  var copy_save_button;
+  var save_copied;
+  var challenge_reward2_block;
+  var challenge_reward2_descr;
+  var challenge_reward2_plank;
+  var challenge_rewards;
+  var warp_qm_challenges;
+  var gambling_collect_upgrade;
+  var gambling_boosts_label;
+  var gambling_boosts_upgrade;
+  var warp_zoo_keeper_title;
+  var warp_zoo_keeper_descr;
+  var warp_solar_amp_title;
+  var warp_solar_amp_descr;
+  var rank_qm3_title;
+  var rank_qm4_title;
+  var system_monitoring;
+  var sysmon_am_radiation;
+  var sysmon_am_radiation_descr;
+  var sysmon_am_radiation_title;
+  var warp_warpless_table;
+  var endgame;
+  var endgame_back_button;
+  var endgame_quantum_wipe_label;
+  var power_plants_built_label;
 
   $(document).ready(function(){
 
     //CACHE
 
+    power_plants_built_label=$("#power_plants_built_label");
+    endgame_quantum_wipe_label=$("#endgame_quantum_wipe_label");
+    endgame_back_button=$("#endgame_back_button");
+    endgame=$("#endgame");
+    warp_warpless_table=$("#warp_warpless_table");
+    sysmon_am_radiation_title=$("#sysmon_am_radiation_title");
+    sysmon_am_radiation_descr=$("#sysmon_am_radiation_descr");
+    sysmon_am_radiation=$("#sysmon_am_radiation");
+    system_monitoring=$("#system_monitoring");
+    rank_qm3_title=$("#rank_qm3_title");
+    rank_qm4_title=$("#rank_qm4_title");
+    warp_zoo_keeper_title=$("#warp_zoo_keeper_title");
+    warp_zoo_keeper_descr=$("#warp_zoo_keeper_descr");
+    warp_solar_amp_title=$("#warp_solar_amp_title");
+    warp_solar_amp_descr=$("#warp_solar_amp_descr");
+    gambling_boosts_upgrade=$("#gambling_boosts_upgrade");
+    gambling_collect_upgrade=$("#gambling_collect_upgrade");
+    gambling_boosts_label=$("#gambling_boosts_label");
+    warp_qm_challenges=$("#warp_qm_challenges");
+    challenge_rewards=$("#challenge_rewards");
+    challenge_reward2_block=$("#challenge_reward2_block");
+    challenge_reward2_descr=$("#challenge_reward2_descr");
+    challenge_reward2_plank=$("#challenge_reward2_plank");
+    save_copied=$("#save_copied");
+    copy_save_button=$("#copy_save_button");
+    warp_qm_confirm=$("#warp_qm_confirm");
+    warp_qm_confirm_ok=$("#warp_qm_confirm_ok");
+    warp_qm_confirm_cancel=$("#warp_qm_confirm_cancel");
+    warp_qm_warning_close=$("#warp_qm_warning_close");
+    warp_qm_warning=$("#warp_qm_warning");
+    quantum_wipe_upgrade=$("#quantum_wipe_upgrade");
+    warp_qm_table=$("#warp_qm_table");
+    rank_qm1_plank=$("#rank_qm1_plank");
+    rank_qm2_plank=$("#rank_qm2_plank");
+    rank_qm3_plank=$("#rank_qm3_plank");
+    rank_qm4_plank=$("#rank_qm4_plank");
+    rank_qm5_plank=$("#rank_qm5_plank");
+    rank_qm6_plank=$("#rank_qm6_plank");
+    rank_qm1_descr=$("#rank_qm1_descr");
+    rank_qm2_descr=$("#rank_qm2_descr");
+    rank_qm3_descr=$("#rank_qm3_descr");
+    rank_qm4_descr=$("#rank_qm4_descr");
+    rank_qm5_descr=$("#rank_qm5_descr");
+    rank_qm6_descr=$("#rank_qm6_descr");
+    qm1_rank_block=$("#qm1_rank_block");
+    qm2_rank_block=$("#qm2_rank_block");
+    qm3_rank_block=$("#qm3_rank_block");
+    qm4_rank_block=$("#qm4_rank_block");
+    qm5_rank_block=$("#qm5_rank_block");
+    qm6_rank_block=$("#qm6_rank_block");
+    qm_rewards=$("#qm_rewards");
+    gambling_body=$("#gambling_body");
+    gambling_title=$("#gambling_title");
+    pc_title=$("#pc_title");
+    radiator_title=$("#radiator_title");
+    foundry_title=$("#foundry_title");
+    battery_title=$("#battery_title");
+    pc_body=$("#pc_body");
+    radiator_body=$("#radiator_body");
+    battery_body=$("#battery_body");
+    foundry_body=$("#foundry_body");
+    magnetron_title=$("#magnetron_title");
+    magnetron_body=$("#magnetron_body");
+    chief_warp_check_toggle=$("#chief_warp_check_toggle");
+    debug_qkeycard2_upgrade=$("#debug_qkeycard2_upgrade");
+    debug_close_upgrade=$("#debug_close_upgrade");
+    debug_save_upgrade=$("#debug_save_upgrade");
+    debug_qkeycard_upgrade=$("#debug_qkeycard_upgrade");
+    rank_upgrade1_plank=$("#rank_upgrade1_plank");
+    rank_upgrade2_plank=$("#rank_upgrade2_plank");
+    rank_upgrade3_plank=$("#rank_upgrade3_plank");
+    debug_mode_panel=$("#debug_mode_panel");
+    rank_upgrade1_descr=$("#rank_upgrade1_descr");
+    rank_upgrade2_descr=$("#rank_upgrade2_descr");
+    rank_upgrade3_descr=$("#rank_upgrade3_descr");
+    sm_rank_desc=$(".sm_rank_desc");
+    rank_block_show_details=$("#rank_block_show_details");
+    warp_challenge4_upgrade=$("#warp_challenge4_upgrade");
+    warp_challenge3_upgrade=$("#warp_challenge3_upgrade");
+    warp_qm4_upgrade=$("#warp_qm4_upgrade");
+    warp_qm5_upgrade=$("#warp_qm5_upgrade");
+    warp_qm6_upgrade=$("#warp_qm6_upgrade");
+    warp_qm3_upgrade=$("#warp_qm3_upgrade");
+    warp_qm2_upgrade=$("#warp_qm2_upgrade");
+    warp_qm1_upgrade=$("#warp_qm1_upgrade");
+    buff_challenge2_upgrade=$("#buff_challenge2_upgrade");
+    buff_challenge1_upgrade=$("#buff_challenge1_upgrade");
+    gambling_block=$("#gambling_block");
+    gambling_symbol_label=$("#gambling_symbol_label");
+    gambling_info=$("#gambling_info");
+    gambling_info_close=$("#gambling_info_close");
+    gambling_info_box=$("#gambling_info_box");
+    chief_check_toggle=$("#chief_check_toggle");
+    chief_cc_block=$("#chief_cc_block");
+    chief_cc_info=$("#chief_cc_info");
+    chief_cc_info_close=$("#chief_cc_info_close");
+    chief_cc_info_box=$("#chief_cc_info_box");
+    ppa_upgrade4_rank_block=$("#ppa_upgrade4_rank_block");
+    ppa_upgrade3_rank_block=$("#ppa_upgrade3_rank_block");
+    ppa_upgrade2_rank_block=$("#ppa_upgrade2_rank_block");
+    ppa_upgrade1_rank_block=$("#ppa_upgrade1_rank_block");
+    ppa_upgrade0_title=$("#ppa_upgrade0_title");
+    ppa_upgrade1_title=$("#ppa_upgrade1_title");
+    ppa_upgrade2_title=$("#ppa_upgrade2_title");
+    ppa_upgrade3_title=$("#ppa_upgrade3_title");
+    ppa_upgrade4_title=$("#ppa_upgrade4_title");
+    ppa_upgrade0=$("#ppa_upgrade0");
+    ppa_upgrade1=$("#ppa_upgrade1");
+    ppa_upgrade2=$("#ppa_upgrade2");
+    ppa_upgrade3=$("#ppa_upgrade3");
+    ppa_upgrade4=$("#ppa_upgrade4");
+    pp_quadrant=$(".pp_quadrant");
+    item3_pp=$(".item3_pp");
+    item3_pp_plus=$(".item3_pp_plus");
+    pp2_add=$("#pp2_add");
+    pp3_add=$("#pp3_add");
+    pp4_add=$("#pp4_add");
+    pp5_add=$("#pp5_add");
+    pp1=$("#pp1");
+    pp2=$("#pp2");
+    pp3=$("#pp3");
+    pp4=$("#pp4");
+    pp5=$("#pp5");
+    powerplant_arena=$("#powerplant_arena");
+    main_container=$("#main_container");
+    establish_powerplant_upgrade=$("#establish_powerplant_upgrade");
+    positron_cubes_owned_label=$("#positron_cubes_owned_label");
+    warp_challenge1_upgrade=$("#warp_challenge1_upgrade");
+    warp_challenge2_upgrade=$("#warp_challenge2_upgrade");
+    pc_block=$("#pc_block");
+    pc_lock_block=$("#pc_lock_block");
+    pc_unlock_upgrade=$("#pc_unlock_upgrade");
+    pc_seconds=$("#pc_seconds");
+    pc_positrons_label=$("#pc_positrons_label");
+    pc_positron_cubes_label=$("#pc_positron_cubes_label");
+    pc_emission_label=$("#pc_emission_label");
+    pc_emission_upgrade=$("#pc_emission_upgrade");
+    pc_info=$("#pc_info");
+    pc_info_box=$("#pc_info_box");
+    pc_info_close=$("#pc_info_close");
+
+    battery_percent_up_up=$("#battery_percent_up_up");
+    battery_percent_down_down=$("#battery_percent_down_down");
+
+    lamps_port=$("#lamps_port");
+    radiator_button_center=$("#radiator_button_center");
+    radiator_info_box=$("#radiator_info_box");
+    radiator_info_close=$("#radiator_info_close");
+    radiator_info=$("#radiator_info");
+    radiator_unlock_upgrade=$("#radiator_unlock_upgrade");
+    radiator_button_right=$("#radiator_button_right");
+    radiator_button_left=$("#radiator_button_left");
+    radiator_boost_label=$("#radiator_boost_label");
+    radiator_lock_block=$("#radiator_lock_block");
+    radiator_block=$("#radiator_block");
+
+    warp_rank2_training2_upgrade=$("#warp_rank2_training2_upgrade");
+    warp_rank2_training1_upgrade=$("#warp_rank2_training1_upgrade");
+    warp_rank1_training1_upgrade=$("#warp_rank1_training1_upgrade");
+    all_button8s=$(".button8");
+    magnetron_probability_game_label=$("#magnetron_probability_game_label");
+    magnetron_probability_max_label=$("#magnetron_probability_max_label");
     toggle_scientific=$("#toggle_scientific");
     four_effectiveness_block=$("#four_effectiveness_block");
     three_effectiveness_block=$("#three_effectiveness_block");
@@ -683,6 +998,7 @@
     foundry_recycle_upgrade=$("#foundry_recycle_upgrade");
     repopulation_label=$("#repopulation_label");
     rlab_autobuy_toggle=$("#rlab_autobuy_toggle");
+    warp_panel4_upgrade=$("#warp_panel4_upgrade");
     warp_panel3_upgrade=$("#warp_panel3_upgrade");
     magicnumber_infobox=$("#magicnumber_infobox");
     magicnumber_infobox_cancel=$("#magicnumber_infobox_cancel");
@@ -703,7 +1019,6 @@
     eepc_panel=$("#eepc_panel");
     rlab_panel=$("#rlab_panel");
     aa_panel=$("#aa_panel");
-    eepc_label=$("#eepc_label");
     sup_one_label=$("#sup_one_label");
     sup_two_label=$("#sup_two_label");
     sup_three_label=$("#sup_three_label");
@@ -718,49 +1033,6 @@
     two_price_label=$("#two_price_label");
     three_price_label=$("#three_price_label");
     four_price_label=$("#four_price_label");
-    telescope_resolution_upgrade=$("#telescope_resolution_upgrade");
-    telescope_resolution_label=$("#telescope_resolution_label");
-    telescope_stars_amount_label=$("#telescope_stars_amount_label");
-    telescope_galaxies_amount_label=$("#telescope_galaxies_amount_label");
-    telescope_seconds=$("#telescope_seconds");
-    telescope_info=$("#telescope_info");
-    telescope_info_box=$("#telescope_info_box");
-    telescope_info_close=$("#telescope_info_close");
-    space_window=$("#space_window");
-    telescope_unlock_upgrade=$("#telescope_unlock_upgrade");
-    telescope_lock_block=$("#telescope_lock_block");
-    telescope_block=$("#telescope_block");
-    mission_telescope_block=$("#mission_telescope_block");
-    mission_telescope_block_progress=$("#mission_telescope_block_progress");
-    mission_telescope_launch=$("#mission_telescope_launch");
-    mission_telescope_upgrade_label=$("#mission_telescope_upgrade_label");
-    mission_telescope_shuttle_name=$("#mission_telescope_shuttle_name");
-    mission_telescope_upgrade=$("#mission_telescope_upgrade");
-    pb_mission_telescope=$("#pb_mission_telescope");
-    pb_mission_telescope_indicator=$("#pb_mission_telescope_indicator");
-    mission_station_shuttle_name=$("#mission_station_shuttle_name");
-    mission_station_block_progress=$("#mission_station_block_progress");
-    mission_station_launch=$("#mission_station_launch");
-    pb_mission_station=$("#pb_mission_station");
-    pb_mission_station_indicator=$("#pb_mission_station_indicator");
-    mission_debris_shuttle_name=$("#mission_debris_shuttle_name");
-    pb_mission_debris_indicator=$("#pb_mission_debris_indicator");
-    pb_mission_debris=$("#pb_mission_debris");
-    mission_debris_launch=$("#mission_debris_launch");
-    mission_debris_block_progress=$("#mission_debris_block_progress");
-    station_block=$("#station_block");
-    station_info=$("#station_info");
-    station_info_box=$("#station_info_box");
-    station_info_close=$("#station_info_close");
-    station_unlock_upgrade=$("#station_unlock_upgrade");
-    station_lock_block=$("#station_lock_block");
-    shuttle_capacity_upgrade_label=$("#shuttle_capacity_upgrade_label");
-    shuttle_capacity_upgrade=$("#shuttle_capacity_upgrade");
-    mission_debris_block=$("#mission_debris_block");
-    mission_debris_upgrade_label=$("#mission_debris_upgrade_label");
-    mission_station_block=$("#mission_station_block");
-    mission_station_upgrade=$("#mission_station_upgrade");
-    mission_station_upgrade_label=$("#mission_station_upgrade_label");
 
     mc_info=$("#mc_info");
     mc_info_close=$("#mc_info_close");
@@ -769,6 +1041,7 @@
     animal7_battery_charge_multiplier_label=$("#animal7_battery_charge_multiplier_label");
     animal2_magnetron_duration_label=$("#animal2_magnetron_duration_label");
     animal3_magnetron_multiplier_label=$("#animal3_magnetron_multiplier_label");
+    animal8_radiator_boost_label=$("#animal8_radiator_boost_label");
     ac_all_label=$("#ac_all_label");
     animal1=$("#animal1");
     animal2=$("#animal2");
@@ -784,36 +1057,17 @@
     lscanner_block=$("#lscanner_block");
     lscanner_title=$("#lscanner_title");
     lscanner_info=$("#lscanner_info");
-    pb_repair_shuttle=$("#pb_repair_shuttle");
-    pb_repair_shuttle_indicator=$("#pb_repair_shuttle_indicator");
-    mc_lock_block=$("#mc_lock_block");
-    mc_block=$("#mc_block");
-    mc_unlock_upgrade=$("#mc_unlock_upgrade");
-    pb_build_shuttle=$("#pb_build_shuttle");
-    pb_build_shuttle_indicator=$("#pb_build_shuttle_indicator");
-    repair_shuttle_upgrade=$("#repair_shuttle_upgrade");
-    shuttlebay_info=$("#shuttlebay_info");
-    shuttlebay_info_close=$("#shuttlebay_info_close");
-    shuttlebay_info_box=$("#shuttlebay_info_box");
-    shuttlebay_block=$("#shuttlebay_block");
-    shuttleport=$("#shuttleport");
-    build_shuttle_row=$("#build_shuttle_row");
-    build_shuttle_upgrade=$("#build_shuttle_upgrade");
-    pb_components_multiplier=$("#pb_components_multiplier");
-    pb_components_multiplier_indicator=$("#pb_components_multiplier_indicator");
+
     foundry_components_label=$("#foundry_components_label");
     foundry_components_cycle_upgrade=$("#foundry_components_cycle_upgrade");
     foundry_components_multiplier_label=$("#foundry_components_multiplier_label");
     furnace_screen=$("#furnace_screen");
     rank_description_label=$("#rank_description_label");
-    bonus_multiplier_label=$("#bonus_multiplier_label");
-    shuttlebay_lock_block=$("#shuttlebay_lock_block");
-    shuttlebay_block=$("#shuttlebay_block");
-    shuttlebay_unlock_upgrade=$("#shuttlebay_unlock_upgrade");
+    pb_components_multiplier=$("#pb_components_multiplier");
+    pb_components_multiplier_indicator=$("#pb_components_multiplier_indicator");
 
     rank_infobox_cancel=$("#rank_infobox_cancel");
     rank_infobox=$("#rank_infobox");
-    prestige_multiplier_label=$("#prestige_multiplier_label");
     engden_info=$("#engden_info");
     engden_info_box=$("#engden_info_box");
     engden_info_close=$("#engden_info_close");
@@ -891,7 +1145,6 @@
     warp_rank3_upgrade=$("#warp_rank3_upgrade");
     warp_rank4_upgrade=$("#warp_rank4_upgrade");
     warp_wallpaper_upgrade=$("#warp_wallpaper_upgrade");
-    warp_magicnumber_upgrade=$("#warp_magicnumber_upgrade");
 
     reboot_upgrade=$("#reboot_upgrade");
     ac_owned_label=$("#ac_owned_label");
@@ -1036,10 +1289,100 @@
       titlecard.show();
     }
 
+    //testing
+    /*
+    closeWindows();
+    all.hide();
+    prestigeInit();
+    reboot_backtogame.hide();
+    reboot_upgrade.show();
+    prestige_board.show();
+    */
+    //testing
+
     $("html").keydown(function( event ) {
 			  switch (event.key){
+          case "q":
+            if(qkeycard==1){
+              moneyCalc(money_limit-money);
+              InventoryUpdate();
+            }else if(qkeycard==2){
+              all_time_positron_cubes++;
+              pc_positron_cubes_label.html('&#8984;'+numT(all_time_positron_cubes));
+              magicnumber_label.text('['+numT(all_time_positron_cubes)+']');
+            }
+					break;
 					case "w":
             //for testing
+
+            //testFunc();
+
+
+
+
+
+					break;
+          case "d":
+            if(prestige_flag==0){
+              debug_mode++;
+            }
+            if(debug_mode==5){
+              PlayAudio(10);
+              qkeycard=0;debug_qkeycard_upgrade.attr("class", "button3gray");
+              debug_mode_panel.show();
+            }
+          break;
+					case "r":
+
+              PlayAudio(1);
+              restartGenerators();
+					break;
+					case "u":
+            //toggle auto-buy
+
+
+
+            if(chief_check==0){
+
+              PlayAudio(10);
+
+              if(buymax_toggle_flag==0 && rlab_autobuy_toggle_flag==0 && night_shift==0){
+
+                if(warp_panel2_upgrade_flag>0){
+                  buymax_toggle_flag=1;
+                  buymax_toggle.html('[<span class="purple">auto</span>]');
+                }
+
+                if(warp_panel3_upgrade_flag>0){
+                  rlab_autobuy_toggle_flag=1;
+                  rlab_autobuy_toggle.html('[<span class="purple">auto</span>]');
+                }
+
+                if(engden_state==1){
+                  night_shift=1;
+                  night_shift_toggle.attr("class", "engden_on").text("ON");
+                  if(money==money_limit){restartGenerators();}
+                  InventoryUpdate();
+                }
+
+              }else{
+
+                buymax_toggle_flag=0;
+                buymax_toggle.html('[auto]');
+
+                rlab_autobuy_toggle_flag=0;
+                rlab_autobuy_toggle.text('[auto]');
+
+                night_shift=0;
+                night_shift_toggle.attr("class", "engden_off").text("OFF");
+
+              }
+            }else{
+              PlayAudio(10);
+              ccSwitch();
+              chief_warp_check=0;
+              chief_warp_check_toggle.removeClass('button3blue').addClass('button3gray').text("OFF");
+            }
 
 					break;
 				  }
@@ -1064,21 +1407,25 @@
           one_tab_contents.show();active_tab_flag=1;
           one_tab.css("background-color","#30b8d0");
           one_tab.css("color","#1a1a1a");
+          pbRefreshOne();
         break;
         case 'two_tab':
           two_tab_contents.show();active_tab_flag=2;
           two_tab.css("background-color","#dbd45f");
           two_tab.css("color","#1a1a1a");
+          pbRefreshTwo();
         break;
         case 'three_tab':
           three_tab_contents.show();active_tab_flag=3;
           three_tab.css("background-color","#db3356");
           three_tab.css("color","#1a1a1a");
+          pbRefreshThree();
         break;
         case 'four_tab':
           four_tab_contents.show();active_tab_flag=4;
           four_tab.css("background-color","#9f9f9f");
           four_tab.css("color","#1a1a1a");
+          pbRefreshFour();
         break;
       }
 
@@ -1198,6 +1545,51 @@
       }
     });
 
+    copy_save_button.click(function(){
+      PlayAudio(1);
+
+      var copySave = gamesavedump.text();
+      navigator.clipboard.writeText(copySave);
+
+      save_copied.text("Save copied!");
+      setTimeout( function () { save_copied.text(''); }, 2000 );
+
+    });
+
+    debug_qkeycard_upgrade.click(function(){
+      PlayAudio(1);
+      if(qkeycard!=1){
+        qkeycard=1;
+        debug_qkeycard_upgrade.attr("class", "button3blue");
+        debug_qkeycard2_upgrade.attr("class", "button3gray");
+      }else{
+        qkeycard=0;
+        debug_qkeycard_upgrade.attr("class", "button3gray");
+      }
+    });
+    debug_qkeycard2_upgrade.click(function(){
+      PlayAudio(1);
+      if(qkeycard!=2){
+        qkeycard=2;
+        debug_qkeycard2_upgrade.attr("class", "button3blue");
+        debug_qkeycard_upgrade.attr("class", "button3gray");
+      }else{
+        qkeycard=0;
+        debug_qkeycard_upgrade.attr("class", "button3gray");
+      }
+    });
+    debug_save_upgrade.click(function(){
+      PlayAudio(2);
+      SaveGame();
+    });
+    debug_close_upgrade.click(function(){
+      PlayAudio(10);
+      debug_mode=0;
+      qkeycard=0;
+      debug_mode_panel.hide();
+    });
+
+
 
 
     save_upgrade.click(function(){
@@ -1256,6 +1648,10 @@
     reset_ok.click(function(){
       PlayAudio(2);
       clearInterval(save_timer);
+      clearInterval(one_interval);
+      clearInterval(two_interval);
+      clearInterval(three_interval);
+      clearInterval(four_interval);
       localStorage.removeItem(savefile_name);
       reset_infobox.text("Game data reset. Reload page.");
       all.hide();
@@ -1291,7 +1687,7 @@
       stats_window_flag=0;
     });
 
-    rank_block.click(function(){
+    rank_block.click(function(){/*rank block*/
 
       PlayAudio(10);
 
@@ -1316,11 +1712,124 @@
         }
 
 
-        prestige_multiplier_label.text("x"+ numT(prestige_multiplier));
+        rank_upgrade1_descr.html('<span class="sm">Increases the speed of everything by 400%<br><br></span>');
+        rank_upgrade2_descr.html('<span class="sm">Boosts Antimatter Amplifier by x5<br><br></span>');
+        rank_upgrade3_descr.html('<span class="sm">Boosts Antimatter Amplifier by x50<br><br></span>');
 
-        bonus_multiplier_label.text("+"+ numT( (bonus_multiplier+animal1_bonus_multiplier-1)*100 ) + "%" );
+        challenge_reward2_descr.html('<span class="sm">Keeps couplings aligned<br><br></span>');
 
-        eepc_label.text("⌬"+ numT(one_recent_money + two_recent_money + three_recent_money + four_recent_money) );
+        rank_qm1_descr.html('<span class="sm">Foundry stays at working temperature. Components per cycle are increased by x1M<br><br></span>');
+        rank_qm2_descr.html('<span class="sm">Unlocks Lifeforms Scanner from the start<br><br></span>');
+        rank_qm5_descr.html('<span class="sm">Boosts positron emission by x10k<br><br></span>');
+        rank_qm6_descr.html('<span class="sm">A machine to provide energy boosts<br><br></span>');
+
+        if(warp_challenge3_flag==2){
+          rank_qm4_title.html('Solar Amplifier II');
+          rank_qm4_descr.html('<span class="sm">Boosts Antimatter Amplifier by x3 and speed by 200%<br><br></span>');
+        }else{
+          rank_qm4_title.html('Solar Amplifier');
+          rank_qm4_descr.html('<span class="sm">Boosts Antimatter Amplifier by x2<br><br></span>');
+        }
+
+        if(warp_challenge4_flag==2){
+          rank_qm3_title.html('Zoo Keeper II');
+          rank_qm3_descr.html('<span class="sm">Get 5 lifeforms from every Lifeform upgrade<br><br></span>');
+        }else{
+          rank_qm3_title.html('Zoo Keeper');
+          rank_qm3_descr.html('<span class="sm">Get 2 lifeforms from every Lifeform upgrade<br><br></span>');
+        }
+
+        sysmon_am_radiation_title.html('Spillover Multiplier: <b>x'+numT(am_radiation_multiplier)+'</b>');
+        sysmon_am_radiation_descr.html('<span class="sm">In warpless mode, every 100 antimatter increments the multiplier<br><br></span>');
+        if(am_radiation_multiplier>1){system_monitoring.show();}else{system_monitoring.hide();}
+
+
+        if(time_fundamental==0.25){
+          ppa_upgrade1_rank_block.removeClass('inactive').addClass('active');
+          rank_upgrade1_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          ppa_upgrade1_rank_block.removeClass('active').addClass('inactive');
+          rank_upgrade1_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+
+        if(powerplants_multiplier>=5){
+          ppa_upgrade2_rank_block.removeClass('inactive').addClass('active');
+          rank_upgrade2_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          ppa_upgrade2_rank_block.removeClass('active').addClass('inactive');
+          rank_upgrade2_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+
+        if(powerplants_multiplier>=50){
+          ppa_upgrade3_rank_block.removeClass('inactive').addClass('active');
+          rank_upgrade3_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          ppa_upgrade3_rank_block.removeClass('active').addClass('inactive');
+          rank_upgrade3_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+
+        if(warp_challenge2_flag==2){/*couplings stabilizer*/
+          challenge_rewards.show();
+          challenge_reward2_block.removeClass('inactive').addClass('active');
+          challenge_reward2_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          challenge_rewards.hide();
+          challenge_reward2_block.removeClass('active').addClass('inactive');
+          challenge_reward2_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+
+
+        if(countQUF(quantum_upgrade_flag)>0){//when there are quantum upgrades
+          qm_rewards.show();
+        }else{qm_rewards.hide();}
+
+        if(quantum_upgrade_flag[0]==1){
+          qm1_rank_block.removeClass('inactive2').addClass('active2');
+          rank_qm1_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          qm1_rank_block.removeClass('active2').addClass('inactive2');
+          rank_qm1_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+        if(quantum_upgrade_flag[1]==1){
+          qm2_rank_block.removeClass('inactive2').addClass('active2');
+          rank_qm2_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          qm2_rank_block.removeClass('active2').addClass('inactive2');
+          rank_qm2_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+        if(quantum_upgrade_flag[2]==1){
+          qm3_rank_block.removeClass('inactive2').addClass('active2');
+          rank_qm3_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          qm3_rank_block.removeClass('active2').addClass('inactive2');
+          rank_qm3_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+        if(quantum_upgrade_flag[3]==1){
+          qm4_rank_block.removeClass('inactive2').addClass('active2');
+          rank_qm4_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          qm4_rank_block.removeClass('active2').addClass('inactive2');
+          rank_qm4_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+        if(quantum_upgrade_flag[4]==1){
+          qm5_rank_block.removeClass('inactive2').addClass('active2');
+          rank_qm5_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          qm5_rank_block.removeClass('active2').addClass('inactive2');
+          rank_qm5_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+        if(quantum_upgrade_flag[5]==1){
+          qm6_rank_block.removeClass('inactive2').addClass('active2');
+          rank_qm6_plank.removeClass('red').addClass('blue').text('[active]');
+        }else{
+          qm6_rank_block.removeClass('active2').addClass('inactive2');
+          rank_qm6_plank.removeClass('blue').addClass('red').text('[inactive]');
+        }
+
+        //start off with details hidden
+        rank_block_show_details_flag=0;
+        rank_block_show_details.text("Show details");
+        sm_rank_desc.hide();
 
         closeWindows();
         rank_infobox.show();
@@ -1337,16 +1846,40 @@
       rank_infobox.hide();
       rankinfo_window_flag=0;
     });
+    rank_block_show_details.click(function(){
+      PlayAudio(10);
+
+      if(rank_block_show_details_flag==0){
+        rank_block_show_details_flag=1;
+        sm_rank_desc.show();
+        rank_block_show_details.text("Hide details");
+      }else{
+        rank_block_show_details_flag=0;
+        sm_rank_desc.hide();
+        rank_block_show_details.text("Show details");
+      }
+
+
+    });
 
     magicnumber_block.click(function(){
 
       PlayAudio(10);
 
       if(magicnumber_window_flag==0){
+
         closeWindows();
         magicnumber_infobox.show();
         magicnumber_window_flag=1;
         windowScroll();
+
+        positron_cubes_owned_label.text('[ '+numT(all_time_positron_cubes)+' ]');
+        power_plants_built_label.text('[ '+numT(powerplants_amount)+' ]');
+
+        if(all_time_positron_cubes<5){
+          establish_powerplant_upgrade.attr("class", "disabled9");
+        }else{establish_powerplant_upgrade.attr("class", "button9");}
+
       }else{
         magicnumber_infobox.hide();
         magicnumber_window_flag=0;
@@ -1366,6 +1899,8 @@
 
     import_save_button.click(function(){
 
+      if(import_save_dump.text().length<=0){return;}
+
       PlayAudio(2);
 
       localStorage.setItem(savefile_name, import_save_dump.text());
@@ -1378,10 +1913,39 @@
       closeWindows();
       windowScroll();
       all.hide();
+
+      //checking save
+
+      let gameData=localStorage.getItem(savefile_name);
+      gamesavedump.text(gameData);
+
+      if(gameData) {
+        try {
+            gameData = LZString.decompressFromBase64(gameData);
+            if(gameData===null){gameData="invalid save";}
+            gameData = JSON.parse(gameData);
+        } catch(e) {
+            console.log(e);
+            incorrectsave_infobox.show().html("The save is invalid.<br><br>Make sure you copied the save correctly. If you don't have a save you can use, you can reset the game, by wiping the save and starting from scratch (see Settings below)");
+            all.hide();
+            return;
+        }
+      }
+
+      if(version!=gameData.player[6]){
+        incorrectsave_infobox.show().html("A save from a previous version detected. It's not compatible with <span class='red'>Machinery ["+version+"]</span><br><br>Please, wipe save to start from scratch or import a save that matches this game version (see Settings below)");
+        clearInterval(save_timer);button3Disable(save_upgrade);save_timer=null;
+        all.hide();
+        return;
+      }
+
+
+      //show success
       reset_infobox.show();
       reset_window_flag=1;
 
       reset_infobox.text("Save successfully imported. Reload page.");
+
 
     });
 
@@ -1476,54 +2040,54 @@
 
     });
 
-    shuttlebay_info.click(function(){
+    radiator_info.click(function(){
 
-      $(shuttlebay_info_box).show();
+      $(radiator_info_box).show();
       PlayAudio(2);
 
     });
-    shuttlebay_info_close.click(function(){
+    radiator_info_close.click(function(){
 
-      $(shuttlebay_info_box).hide();
-      PlayAudio(2);
-
-    });
-
-    mc_info.click(function(){
-
-      $(mc_info_box).show();
-      PlayAudio(2);
-
-    });
-    mc_info_close.click(function(){
-
-      $(mc_info_box).hide();
+      $(radiator_info_box).hide();
       PlayAudio(2);
 
     });
 
-    station_info.click(function(){
+    pc_info.click(function(){
 
-      $(station_info_box).show();
+      $(pc_info_box).show();
       PlayAudio(2);
 
     });
-    station_info_close.click(function(){
+    pc_info_close.click(function(){
 
-      $(station_info_box).hide();
+      $(pc_info_box).hide();
       PlayAudio(2);
 
     });
 
-    telescope_info.click(function(){
+    chief_cc_info.click(function(){
 
-      $(telescope_info_box).show();
+      $(chief_cc_info_box).show();
       PlayAudio(2);
 
     });
-    telescope_info_close.click(function(){
+    chief_cc_info_close.click(function(){
 
-      $(telescope_info_box).hide();
+      $(chief_cc_info_box).hide();
+      PlayAudio(2);
+
+    });
+
+    gambling_info.click(function(){
+
+      $(gambling_info_box).show();
+      PlayAudio(2);
+
+    });
+    gambling_info_close.click(function(){
+
+      $(gambling_info_box).hide();
       PlayAudio(2);
 
     });
@@ -1553,7 +2117,7 @@
       closeWindows();
       prestige_infobox.show();
       windowScroll();
-      ac_label.text( numT( antimatter ) );
+      ac_label.html( '<span class="gray">' + numT( antimatter_cubes-antimatter_cubes_spent ) + ' + </span>' + numT( antimatter ) );
 
       if(antimatter_cubes==0){//before first warp
         if(antimatter<2){am_label.html( "x1 <span class='gray'>(minimum x2 for any effect)</span>" );}else{
@@ -1595,125 +2159,108 @@
       prestige_board.hide();
       all.show();
     });
-    prestige_ok.click(function(){//---------------warp
+    prestige_ok.click(function(){
       PlayAudio(2);
-
-      //LOOPS
-      clearInterval(telescope_timer);//stop the telescope
-      clearInterval(magnetron_interval);//stop the magnetron
-      clearInterval(save_timer);//stop the save timer, so that if someone reloads at this point, we don't run into problems
-      clearInterval(one_interval);//stop all generators
-      clearInterval(two_interval);
-      clearInterval(three_interval);
-      clearInterval(four_interval);
-      clearInterval(furnace_cooling_timer);
-      furnace_cooling_timer = null;
-
-      closeWindows();
-      all.hide();
-
-      //if the player rebooted too quickly, lifeforms become rare for that run
-      if( Math.floor(antimatter/antimatter_cubes*100)<100 ){recency=1;}
-      else{recency=0;}//recency=0 is what you want
-
-      antimatter_cubes+=antimatter;antimatter=0;//converting antimatter to cubes;i reset antimatter here, although Init does it as well
-
-
-      if(antimatter_cubes>0){prestige_multiplier=antimatter_cubes;}
-      else prestige_multiplier=1;
-
-      //the more antimatter_cubes we created, the farther the first overdrive price is going to be
-      if(antimatter_cubes<100){//before we reach full automation, we have more overdrives
-
-        //this adds +500 for each generated antimatter cube:
-        //0 or 1 means 1000
-        //2 means 1500
-        //3 means 2000 and so on
-        if(antimatter_cubes>0){overdrive_price=1000+(antimatter_cubes-1)*500;}
-        else{overdrive_price=1000;}
-
-      }else{//in this mode overdrives become much rarer
-
-        overdrive_price=all_time_money/1000;
-
-        //we also begin to provide a long money limit
-        money_limit_init=all_time_money/10000;
-        money_limit_upgrade_price_init=all_time_money/50000;
-
-      }
-
-
-      //additionally, the rate of overdrive price growth also increases
-      if(antimatter_cubes<=100){
-        ogr=2+antimatter_cubes*0.05;
-      }else{
-        ogr=5;
-      }
-
-      if(lscanner_state==1){
-        ogr=10;//this is also set in the floor admin warp upgrade
-      }
-
-
-
-
-
-      prestige_flag=1;//so that we can buy upgrades
-      prestigeInit();
-      reboot_backtogame.hide();
-      reboot_upgrade.show();
-      prestige_board.show();
-
-
+      prestigeOk();
     });
     reboot_upgrade.click(function(){
       PlayAudio(2);
-      prestige_board.hide();
-      all.show();
-      Init();
+      rebootOk();
     });
 
         warp_panel1_upgrade.click(function(){
           if(prestige_flag==0){return;}
 
-          PlayAudio(2);
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
-          antimatter_cubes_spent+=warp_panel1_upgrade_price;
+          if(ac_owned-warp_price>=0){
 
-          warp_panel1_upgrade_flag=1;
-            sup_one_label.show();
-            sup_two_label.show();
-            sup_three_label.show();
-            sup_four_label.show();
+            PlayAudio(2);
 
-          prestigeState();
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
 
-        });
+            warp_panel1_upgrade_flag=1;
+              sup_one_label.show();
+              sup_two_label.show();
+              sup_three_label.show();
+              sup_four_label.show();
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
+
+
+
+        });//on by default
         warp_panel2_upgrade.click(function(){
           if(prestige_flag==0){return;}
 
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+          if(ac_owned-warp_price>=0){
+
           PlayAudio(2);
 
-          antimatter_cubes_spent+=warp_panel2_upgrade_price;
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
 
-          warp_panel2_upgrade_flag=1;
-            buymax_toggle.show();
-            machines_buymax_toggle.show();
+            warp_panel2_upgrade_flag=1;
+              buymax_toggle.show();
+              buymax_toggle_flag=1;
+              buymax_toggle.html('[<span class="purple">auto</span>]');
 
-          prestigeState();
+              //this is done to override the value of the autobuy_purse, which is used to properly stop generators at warp. But the side effect is that when autobuy hasn't been activated yet, the values of autobuy_purse are all 0s and they override the flags in reboot_upgrade, which leads to inconsistent behavior
+              autobuy_purse[0]=buymax_toggle_flag;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
         warp_panel3_upgrade.click(function(){
           if(prestige_flag==0){return;}
 
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+          if(ac_owned-warp_price>=0){
+
+            PlayAudio(2);
+
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_panel3_upgrade_flag=1;
+              rlab_autobuy_toggle.show();
+              rlab_autobuy_toggle_flag=1;
+              rlab_autobuy_toggle.html('[<span class="purple">auto</span>]');
+              autobuy_purse[1]=rlab_autobuy_toggle_flag;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
+
+        });
+        warp_panel4_upgrade.click(function(){
+          if(prestige_flag==0){return;}
+
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+          if(ac_owned-warp_price>=0){
+
           PlayAudio(2);
 
-          antimatter_cubes_spent+=warp_panel3_upgrade_price;
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
 
-          warp_panel3_upgrade_flag=1;
-            rlab_autobuy_toggle.show();
+            warp_panel4_upgrade_flag=1;
+              machines_buymax_toggle.show();
+              machines_buymax_toggle_flag=1;
+              machines_buymax_toggle.html('[1/<span class="purple">max</span>]');
 
-          prestigeState();
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
 
@@ -1721,39 +2268,60 @@
 
           if(prestige_flag==0){return;}
 
-          PlayAudio(2);
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
-          antimatter_cubes_spent+=warp_magnetron_duration_upgrade_price;
+          if(ac_owned-warp_price>=0){
 
-          warp_max_magnetron_duration=120;
+            PlayAudio(2);
 
-          prestigeState();
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_max_magnetron_duration=120;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
         warp_magnetron_multiplier_upgrade.click(function(){
 
           if(prestige_flag==0){return;}
 
-          PlayAudio(2);
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
-          antimatter_cubes_spent+=warp_magnetron_multiplier_upgrade_price;
+          if(ac_owned-warp_price>=0){
 
-          warp_max_magnetron_multiplier=20;
+            PlayAudio(2);
 
-          prestigeState();
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_max_magnetron_multiplier=20;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
         warp_magnetron_alerting_upgrade.click(function(){
 
           if(prestige_flag==0){return;}
 
-          PlayAudio(2);
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
-          antimatter_cubes_spent+=warp_magnetron_alerting_upgrade_price;
+          if(ac_owned-warp_price>=0){
 
-          warp_magnetron_alerting=1;
+            PlayAudio(2);
 
-          prestigeState();
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_magnetron_alerting=1;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
 
@@ -1761,48 +2329,412 @@
 
           if(prestige_flag==0){return;}
 
-          PlayAudio(2);
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
-          antimatter_cubes_spent+=warp_rank1_upgrade_price;
+          if(ac_owned-warp_price>=0){
 
-          engden_state=1;//this defines the player being an Engineer
+            PlayAudio(2);
 
-          prestigeState();
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            engden_state=1;//this defines the player being an Engineer
+
+            night_shift=1;
+            night_shift_toggle.attr("class", "engden_on").text("ON");
+            autobuy_purse[2]=night_shift;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
         warp_rank2_upgrade.click(function(){
 
           if(prestige_flag==0){return;}
 
-          PlayAudio(2);
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
-          antimatter_cubes_spent+=warp_rank2_upgrade_price;
+          if(ac_owned-warp_price>=0){
 
-          lscanner_state=1;//this defines the player being a Floor Admin
-          ogr=10;//this is also set in prestige_ok event
+            PlayAudio(2);
 
-          prestigeState();
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            lscanner_state=1;//this defines the player being a Floor Admin
+            ogr=10;//this is also set in prestige_ok event
+            recency=0;//and this is set here, so that the first time lscanner is activated, lifeforms are always present regardless of the ratio of antimatter earned in the previous play
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
 
         });
-
-        warp_magicnumber_upgrade.click(function(){
+        warp_rank1_training1_upgrade.click(function(){
 
           if(prestige_flag==0){return;}
 
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+          if(ac_owned-warp_price>=0){
+
+            PlayAudio(2);
+
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_rank1_training1_flag=1;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
+
+        });//not currently used
+        warp_rank2_training1_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+          if(ac_owned-warp_price>=0){
+
+            PlayAudio(2);
+
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_rank2_training1_flag=1;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
+
+        });
+        warp_rank2_training2_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          var ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+          if(ac_owned-warp_price>=0){
+
+            PlayAudio(2);
+
+            antimatter_cubes_spent+=warp_price;
+            warp_price*=warp_price_rate;
+
+            warp_rank2_training2_flag=1;
+
+            prestigeState();
+
+          }else{PlayAudio(11);}
+
+        });
+
+        //Primal Grind, Sharpshooter, Positrons, Gen X
+        warp_challenge1_upgrade.click(function(){
+
+          if(prestige_flag==0 || warp_challenge1_flag==2){return;}
+
           PlayAudio(2);
+          warp_challenge1_flag=2;
 
-          antimatter_cubes_spent+=warp_magicnumber_upgrade_price;
+          prestigeState();
 
-          magicnumber++;
-          warp_magicnumber_upgrade_flag=1;
+        });
+        warp_challenge2_upgrade.click(function(){
+
+          if(prestige_flag==0 || warp_challenge2_flag==2){return;}
+
+          PlayAudio(2);
+          warp_challenge2_flag=2;
+
+          prestigeState();
+
+        });
+        warp_challenge3_upgrade.click(function(){
+
+          if(prestige_flag==0 || warp_challenge3_flag==2){return;}
+
+          PlayAudio(2);
+          warp_challenge3_flag=2;
+
+          prestigeState();
+
+        });
+        warp_challenge4_upgrade.click(function(){
+
+          if(prestige_flag==0 || warp_challenge4_flag==2){return;}
+
+          PlayAudio(2);
+          warp_challenge4_flag=2;
+
+          prestigeState();
+
+        });
+        buff_challenge1_upgrade.click(function(){
+
+          if(prestige_flag==0 || buff_challenge1_flag==2){return;}
+
+          PlayAudio(2);
+          buff_challenge1_flag=2;
+
           prestigeState();
 
         });
 
+        quantum_wipe_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(8);
+
+          if(countQUF(quf_temp_bag)==0){warp_qm_warning.show();return;}
+          else{warp_qm_warning.hide();}
+
+          warp_qm_confirm.show();
+
+        });
+        warp_qm_warning_close.click(function(){
+
+          PlayAudio(10);
+
+          warp_qm_warning.hide();
+
+        });
+        warp_qm_confirm_cancel.click(function(){
+
+          PlayAudio(10);
+
+          warp_qm_confirm.hide();
+
+        });
+        warp_qm_confirm_ok.click(function(){/*quantum wipe!*/
+
+          //setting the actual quf array
+          quantum_upgrade_flag=quf_temp_bag;
+
+          //this is a warpless challenge and when we quantum wipe, we reset it in case it was failed
+          if(buff_challenge1_flag==3){buff_challenge1_flag=0;}
+
+          PlayAudio(10);
+
+          prestige_board.hide();
+          all.show();
+
+          windowScroll();
+
+          ppaReset();
+          resetPrestige();
+          Init();
+
+        });
+
+
+        warp_qm1_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(10);
+          warp_qm_confirm.hide();
+
+          if(quf_temp_bag[0]==0 && countQUF(quf_temp_bag)<3){
+            quf_temp_bag[0]=1;
+            warp_qm1_upgrade.removeClass('item3').addClass('item3_selected');
+          }else{
+            quf_temp_bag[0]=0;
+            warp_qm1_upgrade.removeClass("item3_selected").addClass("item3");
+          }
+        });
+        warp_qm2_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(10);
+          warp_qm_confirm.hide();
+
+          if(quf_temp_bag[1]==0 && countQUF(quf_temp_bag)<3){
+            quf_temp_bag[1]=1;
+            warp_qm2_upgrade.removeClass('item3').addClass('item3_selected');
+          }else{
+            quf_temp_bag[1]=0;
+            warp_qm2_upgrade.removeClass("item3_selected").addClass("item3");
+          }
+
+        });
+        warp_qm3_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(10);
+          warp_qm_confirm.hide();
+
+          if(quf_temp_bag[2]==0 && countQUF(quf_temp_bag)<3){
+            quf_temp_bag[2]=1;
+            warp_qm3_upgrade.removeClass('item3').addClass('item3_selected');
+          }else{
+            quf_temp_bag[2]=0;
+            warp_qm3_upgrade.removeClass("item3_selected").addClass("item3");
+          }
+
+        });
+        warp_qm4_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(10);
+          warp_qm_confirm.hide();
+
+          if(quf_temp_bag[3]==0 && countQUF(quf_temp_bag)<3){
+            quf_temp_bag[3]=1;
+            warp_qm4_upgrade.removeClass('item3').addClass('item3_selected');
+          }else{
+            quf_temp_bag[3]=0;
+            warp_qm4_upgrade.removeClass("item3_selected").addClass("item3");
+          }
+
+        });
+        warp_qm5_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(10);
+          warp_qm_confirm.hide();
+
+          if(quf_temp_bag[4]==0 && countQUF(quf_temp_bag)<3){
+            quf_temp_bag[4]=1;
+            warp_qm5_upgrade.removeClass('item3').addClass('item3_selected');
+          }else{
+            quf_temp_bag[4]=0;
+            warp_qm5_upgrade.removeClass("item3_selected").addClass("item3");
+          }
+
+        });
+        warp_qm6_upgrade.click(function(){
+
+          if(prestige_flag==0){return;}
+
+          PlayAudio(10);
+          warp_qm_confirm.hide();
+
+          if(quf_temp_bag[5]==0 && countQUF(quf_temp_bag)<3){
+            quf_temp_bag[5]=1;
+            warp_qm6_upgrade.removeClass('item3').addClass('item3_selected');
+          }else{
+            quf_temp_bag[5]=0;
+            warp_qm6_upgrade.removeClass("item3_selected").addClass("item3");
+          }
+
+        });
+
+        //PRESTIGE 2
+        establish_powerplant_upgrade.click(function(){//-----------establish power plant
+
+          if(all_time_positron_cubes-5<0){PlayAudio(11);return;}
+
+          PlayAudio(2);
+
+          //ading a power plant
+          if(powerplants_amount<5){
+            powerplants_amount++;
+            all_time_positron_cubes-=5;
+          }
+
+          pc_positron_cubes_label.html('&#8984;'+numT(all_time_positron_cubes));
+          magicnumber_label.text('['+numT(all_time_positron_cubes)+']');
+
+          //LOOPS
+          clearInterval(save_timer);button3Disable(save_upgrade);save_timer=null;
+          clearInterval(telescope_timer);telescope_timer=null;//stop the telescope
+          clearInterval(magnetron_interval);magnetron_interval=null;//stop the magnetron
+          clearInterval(furnace_cooling_timer);furnace_cooling_timer=null;//stop the furnace
+          stopGenerators();
+
+          closeWindows();
+          all.hide();
+          powerplant_arena.show();
+
+
+          //chief=1;//eastablishing a power plant makes you chief engineer
+          //rank_label.text("[Chief Engineer]");
+
+          ppaInit();
+
+
+
+
+        });
+        item3_pp_plus.click(function(){//-------build new power plant
+
+          PlayAudio(2);
+          powerplant_arena.hide();
+          all.show();
+
+          clearInterval(ppa_interval);ppa_interval=null;
+
+          resetPrestige();//resetting all prestige values, antimatter and positrons
+          Init();//resetting game
+
+        });
+
+        ppa_upgrade1.click(function(){
+
+          PlayAudio(8);
+          ppa_upgrade_price++;
+          item3_pp_plus.css('visibility','visible');
+
+          time_fundamental=0.25;
+          ppaState();
+
+        });
+        ppa_upgrade2.click(function(){
+
+          PlayAudio(8);
+          ppa_upgrade_price++;
+          item3_pp_plus.css('visibility','visible');
+
+          powerplants_multiplier=5;
+          ppaState();
+
+        });
+        ppa_upgrade3.click(function(){
+
+          PlayAudio(8);
+          ppa_upgrade_price++;
+          item3_pp_plus.css('visibility','visible');
+
+          powerplants_multiplier=50;
+          ppaState();
+
+        });
+        ppa_upgrade4.click(function(){
+
+          PlayAudio(8);
+          ppa_upgrade_price++;
+          item3_pp_plus.css('visibility','visible');
+
+          chief=1;
+          chief_check=0;
+          rank_label.text("[Chief Engineer]");
+          ppaState();
+
+        });
+
+        endgame_back_button.click(function(){
+          PlayAudio(2);
+          all.show();
+          powerplant_arena.hide();
+          clearInterval(ppa_interval);ppa_interval=null;
+
+          save_timer_label.text(120);
+          button3Disable(save_upgrade);
+          SaveLoop();
+        });
 
     button_one.click(function(){
 
-      PlayAudio(1);
+      if(chief_check==0){PlayAudio(1);}
 
       one_supply=one_price;
       one_supply_label.text(numT(one_supply));
@@ -1817,7 +2749,7 @@
     });
     button_two.click(function(){
 
-      PlayAudio(1);
+      if(chief_check==0){PlayAudio(1);}
 
       if(getRandomInt(1,50)==3){
         PlayAudio(9);
@@ -1836,7 +2768,7 @@
     });
     button_three.click(function(){
 
-      PlayAudio(1);
+      if(chief_check==0){PlayAudio(1);}
 
       three_supply=three_price;
       three_supply_label.text(numT(three_supply));
@@ -1851,7 +2783,7 @@
     });
     button_four.click(function(){
 
-      PlayAudio(1);
+      if(chief_check==0){PlayAudio(1);}
 
       four_supply=four_price;
       four_supply_label.text(numT(four_price));
@@ -1887,14 +2819,10 @@
 
     });
     overdrive_upgrade.click(function(){
-      PlayAudio(5);
 
-      /*
-      night_shift=0;//removing night shift to prevent automatic spending of the overdrive bonus
-      night_shift_toggle.attr("class", "engden_off").text("OFF");
-      rlab_autobuy_toggle_flag=0;//removing auto-buy
-      rlab_autobuy_toggle.text('[auto]');
-      */
+      //an almost exact copy of this code is in gambling_boosts_upgrade, so any changes here might need to be made there too
+
+      if(chief_check==0){PlayAudio(5);}
 
 
       moneyCalc(money_limit);
@@ -1911,10 +2839,10 @@
       PlayAudio(10);
       if(buymax_toggle_flag==0){
         buymax_toggle_flag=1;
-        buymax_toggle.html('[1/<span class="purple">max</span>]');
+        buymax_toggle.html('[<span class="purple">auto</span>]');
       }else{
         buymax_toggle_flag=0;
-        buymax_toggle.html('[<span class="purple">1</span>/max]');
+        buymax_toggle.html('[auto]');
       }
     });
     machines_buymax_toggle.click(function(){
@@ -1943,13 +2871,10 @@
 
       var rgf=0;//restart generators flag; this is required so that when we restart the generators, we have the new supply applied
 
-      PlayAudio(2);
-
       var label;
-      var cycles=0;
+      var cycles=1;//with supply the cycles is always 1, because you don't need that many upgrades
 
-      if(buymax_toggle_flag==1){cycles=10;}
-      else{cycles=1;}
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){rgf=1;}
 
@@ -1958,7 +2883,7 @@
         money-=one_upgrade_supply_limit_price;
 
         one_upgrade_supply_limit_stage+=20;
-        if(one_upgrade_supply_limit_stage==100){one_upgrade_supply_limit_stage=0;one_price=one_price*2;}
+        if(one_upgrade_supply_limit_stage==100){one_upgrade_supply_limit_stage=0;one_price=one_price*2;cycles=0;}
         else{one_price+=supply_base;}
 
         one_upgrade_supply_limit_price=one_upgrade_supply_limit_price + one_upgrade_supply_limit_price*sgr;
@@ -1971,11 +2896,7 @@
 
       button_one.text(numT(one_price));
 
-      if(buymax_toggle_flag==1){cycles=10;}
-      else{cycles=1;}
-
       one_upgrade_supply_limit.text("⌬" + numT(one_upgrade_supply_limit_price));
-      //one_upgrade_supply_limit.text("⌬" + numT(getTankPrice(one_upgrade_supply_limit_price,sgr,cycles)) );
 
       progress3(one_upgrade_supply_limit_stage,pb_one_upgrade_supply_limit,pb_one_supply_indicator,label);
 
@@ -1989,10 +2910,10 @@
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==1){cycles=effectiveness_cycles;}
-      else{cycles=1;}
+      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      else{cycles=effectiveness_cycles;}
 
-      PlayAudio(2);
+
 
       if(money==money_limit){restartGenerators();}
 
@@ -2009,6 +2930,8 @@
           else{one_upgrade_effectiveness_stage=0;one_multiplier=one_multiplier*5;}
 
           one_upgrade_effectiveness_level++;
+
+          cycles=0;//stop buymax
 
         }
         else{one_multiplier+=one_init_multiplier;}
@@ -2050,7 +2973,7 @@
 
       var label;
 
-      PlayAudio(2);
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2093,7 +3016,7 @@
 
       //resetting the generator
       one_x=0;g_electric.css('background-position', + one_x + 'px 0px');
-      clearInterval(one_interval);
+      if(buymax_toggle_flag==0){clearInterval(one_interval);}//to make sure the generator does not stop during auto-buy
 
       //resetting effectiveness
       one_upgrade_effectiveness_stage=0;
@@ -2128,13 +3051,10 @@
 
       var rgf=0;
 
-      PlayAudio(2);
-
       var label;
-      var cycles=0;
+      var cycles=1;
 
-      if(buymax_toggle_flag==1){cycles=10;}
-      else{cycles=1;}
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){rgf=1;}
 
@@ -2145,7 +3065,7 @@
         money-=two_upgrade_supply_limit_price;
 
         two_upgrade_supply_limit_stage+=20;
-        if(two_upgrade_supply_limit_stage==100){two_upgrade_supply_limit_stage=0;two_price=two_price*2;}
+        if(two_upgrade_supply_limit_stage==100){two_upgrade_supply_limit_stage=0;two_price=two_price*2;cycles=0;}
         else{two_price+=supply_base;}
 
         two_upgrade_supply_limit_price=two_upgrade_supply_limit_price + two_upgrade_supply_limit_price*sgr;
@@ -2168,13 +3088,11 @@
     });
     two_upgrade_effectiveness.click(function(){
 
-      PlayAudio(2);
-
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==1){cycles=200;}
-      else{cycles=1;}
+      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      else{cycles=effectiveness_cycles;}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2191,6 +3109,8 @@
           else{two_upgrade_effectiveness_stage=0;two_multiplier=two_multiplier*5;}
 
           two_upgrade_effectiveness_level++;
+
+          cycles=0;
 
         }
         else{two_multiplier+=two_init_multiplier;}
@@ -2232,7 +3152,7 @@
 
       var label;
 
-      PlayAudio(2);
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2274,7 +3194,7 @@
 
       //resetting the generator
       two_x=0;g_plasma.css('background-position', + two_x + 'px 0px');
-      clearInterval(two_interval);
+      if(buymax_toggle_flag==0){clearInterval(two_interval);}
 
       //resetting effectiveness
       two_upgrade_effectiveness_stage=0;
@@ -2309,13 +3229,10 @@
 
       var rgf=0;
 
-      PlayAudio(2);
-
       var label;
-      var cycles=0;
+      var cycles=1;
 
-      if(buymax_toggle_flag==1){cycles=10;}
-      else{cycles=1;}
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){rgf=1;}
 
@@ -2325,7 +3242,7 @@
         money-=three_upgrade_supply_limit_price;
 
         three_upgrade_supply_limit_stage+=20;
-        if(three_upgrade_supply_limit_stage==100){three_upgrade_supply_limit_stage=0;three_price=three_price*2;}
+        if(three_upgrade_supply_limit_stage==100){three_upgrade_supply_limit_stage=0;three_price=three_price*2;cycles=0;}
         else{three_price+=supply_base;}
 
         three_upgrade_supply_limit_price=three_upgrade_supply_limit_price + three_upgrade_supply_limit_price*sgr;
@@ -2349,13 +3266,11 @@
     });
     three_upgrade_effectiveness.click(function(){
 
-      PlayAudio(2);
-
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==1){cycles=200;}
-      else{cycles=1;}
+      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      else{cycles=effectiveness_cycles;}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2372,6 +3287,8 @@
           else{three_upgrade_effectiveness_stage=0;three_multiplier=three_multiplier*5;}
 
           three_upgrade_effectiveness_level++;
+
+          cycles=0;
 
         }
         else{three_multiplier+=three_init_multiplier;}
@@ -2413,7 +3330,7 @@
 
       var label;
 
-      PlayAudio(2);
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2454,7 +3371,7 @@
 
       //resetting the generator
       three_x=0;g_nuclear.css('background-position', + three_x + 'px 0px');
-      clearInterval(three_interval);
+      if(buymax_toggle_flag==0){clearInterval(three_interval);}
 
       //resetting effectiveness
       three_upgrade_effectiveness_stage=0;
@@ -2489,13 +3406,10 @@
 
       var rgf=0;
 
-      PlayAudio(2);
-
       var label;
-      var cycles=0;
+      var cycles=1;
 
-      if(buymax_toggle_flag==1){cycles=10;}
-      else{cycles=1;}
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){rgf=1;}
 
@@ -2505,7 +3419,7 @@
         money-=four_upgrade_supply_limit_price;
 
         four_upgrade_supply_limit_stage+=20;
-        if(four_upgrade_supply_limit_stage==100){four_upgrade_supply_limit_stage=0;four_price=four_price*2;}
+        if(four_upgrade_supply_limit_stage==100){four_upgrade_supply_limit_stage=0;four_price=four_price*2;cycles=0;}
         else{four_price+=supply_base;}
 
         four_upgrade_supply_limit_price=four_upgrade_supply_limit_price + four_upgrade_supply_limit_price*sgr;
@@ -2528,13 +3442,11 @@
     });
     four_upgrade_effectiveness.click(function(){
 
-      PlayAudio(2);
-
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==1){cycles=200;}
-      else{cycles=1;}
+      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      else{cycles=effectiveness_cycles;}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2551,6 +3463,8 @@
           else{four_upgrade_effectiveness_stage=0;four_multiplier=four_multiplier*5;}
 
           four_upgrade_effectiveness_level++;
+
+          cycles=0;
 
         }
         else{four_multiplier+=four_init_multiplier;}
@@ -2594,7 +3508,7 @@
 
       var label;
 
-      PlayAudio(2);
+      if(audio_override==0){PlayAudio(2);}
 
       if(money==money_limit){restartGenerators();}
 
@@ -2635,7 +3549,7 @@
 
       //resetting the generator
       four_x=0;g_gravity.css('background-position', + four_x + 'px 0px');
-      clearInterval(four_interval);
+      if(buymax_toggle_flag==0){clearInterval(four_interval);}
 
       //resetting effectiveness
       four_upgrade_effectiveness_stage=0;
@@ -2668,6 +3582,86 @@
 
     //MACHINES
 
+    //minimize machines
+    battery_title.click(function(){
+
+      PlayAudio(10);
+
+      if(battery_min_flag==0){
+        battery_min_flag=1;
+        battery_body.hide();
+      }else{
+        battery_min_flag=0;
+        battery_body.show();
+      }
+
+    });
+    magnetron_title.click(function(){
+
+      PlayAudio(10);
+
+      if(magnetron_min_flag==0){
+        magnetron_min_flag=1;
+        magnetron_body.hide();
+      }else{
+        magnetron_min_flag=0;
+        magnetron_body.show();
+      }
+
+    });
+    gambling_title.click(function(){
+
+      PlayAudio(10);
+
+      if(gambling_min_flag==0){
+        gambling_min_flag=1;
+        gambling_body.hide();
+      }else{
+        gambling_min_flag=0;
+        gambling_body.show();
+      }
+
+    });
+    foundry_title.click(function(){
+
+      PlayAudio(10);
+
+      if(foundry_min_flag==0){
+        foundry_min_flag=1;
+        foundry_body.hide();
+      }else{
+        foundry_min_flag=0;
+        foundry_body.show();
+      }
+
+    });
+    radiator_title.click(function(){
+
+      PlayAudio(10);
+
+      if(radiator_min_flag==0){
+        radiator_min_flag=1;
+        radiator_body.hide();
+      }else{
+        radiator_min_flag=0;
+        radiator_body.show();
+      }
+
+    });
+    pc_title.click(function(){
+
+      PlayAudio(10);
+
+      if(pc_min_flag==0){
+        pc_min_flag=1;
+        pc_body.hide();
+      }else{
+        pc_min_flag=0;
+        pc_body.show();
+      }
+
+    });
+
     //battery
     battery_unlock_upgrade.click(function(){
 
@@ -2694,7 +3688,7 @@
         battery_charge_percentage_label.text(battery_charge_percentage+"%");
       }
 
-      if(battery_charge_percentage>=10){
+      if(battery_charge_percentage>=10 && foundry_state==1){
         furnace_screen.removeClass('furnace_screen_dim').addClass('furnace_screen_lit');
 
         clearInterval(furnace_cooling_timer);
@@ -2715,7 +3709,77 @@
         }
       }
 
-      if(battery_charge_percentage<10){
+      if(battery_charge_percentage<10 && foundry_state==1 && quantum_upgrade_flag[0]==0){
+
+        furnace_screen.removeClass('furnace_screen_lit').addClass('furnace_screen_dim');
+
+          foundry_production_flag=0;
+
+          if(!furnace_cooling_timer){//prevents from launching the interval twice
+            furnace_cooling_timer=setInterval(function() {
+
+              foundry_temperature-=getRandomInt(0,5);
+              if(foundry_temperature<=0){foundry_temperature=0;clearInterval(furnace_cooling_timer);furnace_cooling_timer = null;}
+              furnace_screen.text(foundry_temperature+" °C");
+
+            }, 1000);
+          }
+
+
+      }
+
+    });
+    battery_percent_up_up.click(function(){
+
+
+
+      if(battery_charge_percentage<battery_charge_percentage_limit){
+        PlayAudio(7);
+
+
+        if(battery_charge_percentage==0){battery_charge_percentage=1;}
+
+        else if(battery_charge_percentage>=1 && battery_charge_percentage<10){
+          if(battery_charge_percentage_limit>=10){battery_charge_percentage=10;}
+          else{battery_charge_percentage=battery_charge_percentage_limit;}
+        }
+
+        else if(battery_charge_percentage>=10){battery_charge_percentage=battery_charge_percentage_limit;}
+
+
+        battery_charge_percentage_label.text(battery_charge_percentage+"%");
+      }
+
+      if(battery_charge_percentage>=10 && foundry_state==1){
+        furnace_screen.removeClass('furnace_screen_dim').addClass('furnace_screen_lit');
+
+        clearInterval(furnace_cooling_timer);
+        furnace_cooling_timer = null;// release our intervalID from the variable; otherwise it will not pass the if(!furnace_cooling_timer) check in battery_percent_down.click()
+      }
+
+    });
+    battery_percent_down_down.click(function(){
+
+
+
+      if(battery_charge_percentage>0){
+        PlayAudio(7);
+
+        if(battery_charge_percentage>10){battery_charge_percentage=10;}
+        else if(battery_charge_percentage>1){battery_charge_percentage=1;}
+        else if(battery_charge_percentage==1){battery_charge_percentage=0;}
+
+
+
+
+
+        battery_charge_percentage_label.text(battery_charge_percentage+"%");
+        if(battery_charge_percentage==0){
+          battery_effectiveness_label.text("[⑂0]");
+        }
+      }
+
+      if(battery_charge_percentage<10 && foundry_state==1 && quantum_upgrade_flag[0]==0){
 
         furnace_screen.removeClass('furnace_screen_lit').addClass('furnace_screen_dim');
 
@@ -2765,12 +3829,6 @@
         charge-=charge_throughput_upgrade_price;
         battery_charge_percentage_limit++;
 
-        if(charge_throughput_magicnumber_flag==0 && battery_charge_percentage_limit==35){
-          charge_throughput_magicnumber_flag=1;
-          magicnumber++;
-          magicnumber_label.text("["+magicnumber+"]");
-        }
-
         if(battery_charge_percentage_limit>=100){
           charge_throughput_upgrade.hide();
         }
@@ -2816,29 +3874,35 @@
 
       GeneratorRatios();
 
-      magnetron_interval=setInterval(function() {
+      if(!magnetron_interval){
+        magnetron_interval=setInterval(function() {
 
-        num++;
-        magnetron_button.text(parseInt((magnetron_duration+animal2_magnetron_duration)-num)+" sec");
+          num++;
+          magnetron_button.text(parseInt((magnetron_duration+animal2_magnetron_duration)-num)+" sec");
 
-        if(num>=(magnetron_duration+animal2_magnetron_duration)){
-          magnetron_multiplier=1;
-          magnetron_state=1;//back to non-armed state
-          GeneratorRatios();
-          pb_money_indicator.css("background-color","#c149ff");
-          magnetron_button.text("x"+(device_magnetron_multiplier+animal3_magnetron_multiplier));
-          magnetron_buttonDisable();
-          clearInterval(magnetron_interval);
-        }
+          if(num>=(magnetron_duration+animal2_magnetron_duration)){
+            magnetron_multiplier=1;
+            magnetron_state=1;//back to non-armed state
+            GeneratorRatios();
+            pb_money_indicator.css("background-color","#c149ff");
+            magnetron_button.text("x"+(device_magnetron_multiplier+animal3_magnetron_multiplier));
+            magnetron_buttonDisable();
+              magnetron_choice=999;
+              gambling_collect_flag=1;
+              gambling_collect_upgrade.removeClass('selected11').addClass('button11');
+            clearInterval(magnetron_interval);magnetron_interval=null;
+          }
 
 
-      }, 1000);
+        }, 1000);
+      }
+
 
     });
 
     magnetron_multiplier_upgrade.click(function(){
 
-      PlayAudio(2);
+      if(chief_check==0){PlayAudio(2);}
 
       var cycles=0;
 
@@ -2871,7 +3935,7 @@
     });
     magnetron_duration_upgrade.click(function(){
 
-      PlayAudio(2);
+      if(chief_check==0){PlayAudio(2);}
 
       var cycles=0;
 
@@ -2903,35 +3967,47 @@
     auxiliary_lever1.mousemove(function(){
         var avalue;
         var aeu_combined=aux_eff_unit+animal5_auxiliary_effectiveness_modifier;
+        var ae_max=50+50+animal5_auxiliary_effectiveness_modifier*2;
         auxiliary_effectiveness1=aeu_combined-Math.abs( Math.floor(auxiliary_lever1.val()/10) * (aeu_combined/5) );//we need Math.abs because the lever has negative values -50 ... 50
         auxiliary_effectiveness=1+(auxiliary_effectiveness1+auxiliary_effectiveness2)*0.01;
         //console.log(auxiliary_effectiveness);
-        auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
+        if(animal5_auxiliary_effectiveness_modifier>0){
+          auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%/"+ae_max+"%]");
+        }else{
+          auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
+        }
+
         GeneratorRatios();
     });
     auxiliary_lever2.mousemove(function(){
         var avalue;
         var aeu_combined=aux_eff_unit+animal5_auxiliary_effectiveness_modifier;
+        var ae_max=50+50+animal5_auxiliary_effectiveness_modifier*2;
         auxiliary_effectiveness2=aeu_combined-Math.abs( Math.ceil(auxiliary_lever2.val()/10) * (aeu_combined/5) );
         auxiliary_effectiveness=1+(auxiliary_effectiveness1+auxiliary_effectiveness2)*0.01;
         //console.log(auxiliary_effectiveness);
-        auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
+        if(animal5_auxiliary_effectiveness_modifier>0){
+          auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%/"+ae_max+"%]");
+        }else{
+          auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
+        }
+
         GeneratorRatios();
     });
     night_shift_toggle.click(function(){
+
+      if(chief_check==1){return;}
 
       PlayAudio(8);
 
       if(night_shift==0){
         night_shift=1;
         night_shift_toggle.attr("class", "engden_on").text("ON");
-        //overdrive_panel.hide();
         if(money==money_limit){restartGenerators();}
-        InventoryUpdate();
+        InventoryUpdate();//this is called because this is where the auto-buy happens
       }else{
         night_shift=0;
         night_shift_toggle.attr("class", "engden_off").text("OFF");
-        //overdrive_panel.show();
       }
     });
 
@@ -2991,18 +4067,20 @@
 
       progress3(fccu_stage,pb_components_multiplier,pb_components_multiplier_indicator,label);
       foundry_components_cycle_upgrade.text("⑂" + numT(foundry_components_cycle_upgrade_price));
-      foundry_components_multiplier_label.text("["+numT(foundry_components_multiplier)+"]");
+      foundry_components_multiplier_label.text("["+numT(foundry_components_multiplier*foundry_components_multiplier_qm)+"]");
 
       ChargeUpdate();
 
     });
     foundry_recycle_upgrade.click(function(){
 
+      //this bonus adds 30% of the whole money limit. It neutralizes any of the additional bonuses and it will cap at money limit, which means your bonus might be less than 30% if you are aleady over 70%
+
       PlayAudio(2);
 
       if(magnetron_multiplier>1){//neutralizing the magnetron multiplier
-        moneyCalc(money_limit*0.1/magnetron_multiplier);
-      }else{moneyCalc(money_limit*0.1);}
+        moneyCalc(money_limit*0.3/(magnetron_multiplier*auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier)*am_radiation_multiplier) );
+      }else{moneyCalc(money_limit*0.3 / ( auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier)*am_radiation_multiplier ) );}
 
 
       button1Disable(foundry_recycle_upgrade);
@@ -3015,321 +4093,72 @@
 
     });
 
-    //shuttlebay
-    shuttlebay_unlock_upgrade.click(function(){
+    //radiator
+    radiator_unlock_upgrade.click(function(){
 
       PlayAudio(2);
 
-      foundry_components-=shuttlebay_unlock_upgrade_price;
-      foundry_components_label.text("⯎" + numT(foundry_components));
+      charge-=radiator_unlock_upgrade_price;
 
 
       //default parameters
-      shuttlebayInit();
+      radiatorInit();
 
-      factoryState();
-
-    });
-    build_shuttle_upgrade.click(function(){
-
-      var label;
-
-      var cycles=0;
-
-      if(machines_buymax_toggle_flag==1){cycles=25;}//for one full shuttle build
-      else{cycles=1;}
-
-      while(foundry_components-build_shuttle_upgrade_price>=0 && cycles>0){
-
-        foundry_components-=build_shuttle_upgrade_price;
-        build_shuttle_upgrade_price = build_shuttle_upgrade_price*1.25;
-
-        bsu_stage+=4;
-        if(bsu_stage==100){
-
-          cycles=0;
-
-          PlayAudio(8);
-
-          bsu_stage=0;
-          let shuttles_already_built=shuttlesBuiltCheck();
-          shuttle_fleet['availability'][shuttles_already_built]=1;
-          drawShuttles();
-
-          foundry_waste_limit-=50;//reduce the waste limit for every new shuttle
-          if(foundry_waste>=foundry_waste_limit){
-            foundry_waste=foundry_waste_limit;
-            button1Enable(foundry_recycle_upgrade);
-          }
-          foundry_waste_label.text(foundry_waste+"/"+foundry_waste_limit);
-
-          if(shuttlesBuiltCheck()>=5){
-            build_shuttle_row.hide();
-          }
-
-        }
-
-
-
-        cycles--;
-      }
-
-      if(bsu_stage!=0){PlayAudio(2);}//so that a single buy makes a button click sound
-
-      foundry_components_label.text("⯎" + numT(foundry_components));
-
-      label=bsu_stage+'%';
-      if(bsu_stage==0){label='';}
-
-      progress3(bsu_stage,pb_build_shuttle,pb_build_shuttle_indicator,label);
-      build_shuttle_upgrade.text("⯎" + numT(build_shuttle_upgrade_price));
-
-      factoryState();
+      ChargeUpdate();
 
     });
-    shuttle_capacity_upgrade.click(function(){
+    radiator_button_center.click(function(){
 
       PlayAudio(2);
 
-      var cycles=0;
-
-      if(machines_buymax_toggle_flag==1){cycles=200;}
-      else{cycles=1;}
-
-      while(foundry_components-shuttle_capacity_upgrade_price>=0 && cycles>0){
-
-        foundry_components-=shuttle_capacity_upgrade_price;
-        shuttle_capacity_upgrade_price = shuttle_capacity_upgrade_price*1.15;
-        shuttle_capacity+=1000;
-
-        if(shuttle_capacity_magicnumber_flag==0 && shuttle_capacity==300000){
-          shuttle_capacity_magicnumber_flag=1;
-          magicnumber++;
-          magicnumber_label.text("["+magicnumber+"]");
-        }
-
-        cycles--;
+      if(radiator_active==0){
+        radiator_active=1;
+        radiator_button_center.text("ON");
+        radiatorSwitch();
+      }else{
+        radiator_active=0;
+        radiator_button_center.text("OFF");
+        radiatorSwitch();
       }
-
-      foundry_components_label.text("⯎" + numT(foundry_components));
-      shuttle_capacity_upgrade.text("⯎" + numT(shuttle_capacity_upgrade_price));
-      shuttle_capacity_upgrade_label.text("["+numT(shuttle_capacity)+"]");
-
-      factoryState();
 
     });
-    repair_shuttle_upgrade.click(function(){
+    radiator_button_left.click(function(){
+
+      PlayAudio(7);
 
 
-      PlayAudio(2);
+        radiator_playhead--;
+        if(radiator_playhead<0){radiator_playhead=3;}
+        radiatorSwitch();
 
-      foundry_components-=repair_shuttle_upgrade_price;
-      foundry_components_label.text("⯎" + numT(foundry_components));
 
-      rsu_stage+=25;
-      if(rsu_stage==100){
 
-        rsu_stage=0;
+    });
+    radiator_button_right.click(function(){
 
-      }
+      PlayAudio(7);
 
-      progress3(rsu_stage,pb_repair_shuttle,pb_repair_shuttle_indicator);
 
-      repair_shuttle_upgrade_price = repair_shuttle_upgrade_price*1.5;
-      repair_shuttle_upgrade.text("⯎" + numT(repair_shuttle_upgrade_price));
+        radiator_playhead++;
+        if(radiator_playhead>3){radiator_playhead=0;}
+        radiatorSwitch();
 
-      factoryState();
+
 
     });
 
-    //mission control
-    mc_unlock_upgrade.click(function(){
+    //pc
+    pc_unlock_upgrade.click(function(){
 
       PlayAudio(2);
 
       //default parameters
-      mcInit();
+      pcInit();
 
       factoryState();
 
     });
-    mission_debris_launch.click(function(){
-
-      PlayAudio(2);
-
-      mission_debris_launch_flag=1;
-
-      mission_debris_launch.hide();
-      mission_debris_block_progress.show();
-      redToGreen(mission_debris_upgrade_label);
-
-      takeShuttle(101);
-      mission_debris_shuttle_name.text('"'+obtainShuttleName(101)+'"');
-
-      factoryState();
-
-
-
-    });
-    mission_station_launch.click(function(){
-
-      PlayAudio(2);
-
-      mission_station_launch_flag=1;
-
-      mission_station_launch.hide();
-      mission_station_block_progress.show();
-      redToGreen(mission_station_upgrade_label);
-
-      takeShuttle(102);
-      mission_station_shuttle_name.text('"'+obtainShuttleName(102)+'"');
-
-      factoryState();
-
-
-
-    });
-    mission_station_upgrade.click(function(){
-
-      var cycles=0;
-
-      if(machines_buymax_toggle_flag==1){cycles=100;}
-      else{cycles=1;}
-
-      while(foundry_components-mission_station_upgrade_price>=0 && cycles>0){
-
-        foundry_components-=mission_station_upgrade_price;
-        mission_station_upgrade_price = mission_station_upgrade_price*1.1;
-
-        mission_station_stage+=25;
-        if(mission_station_stage==100){
-
-
-
-          //cycles=0;
-
-          mission_station_stage=0;
-          mission_station_status+=1;
-
-          if(mission_station_status>=100){
-            cycles=0;
-            PlayAudio(8);
-            mission_station_status=100;
-            mission_station_block_progress.hide();
-            mission_station_upgrade_label.text("Mission complete");
-            station_unlock_upgrade.html(mission_station_status+'%');
-            mission_station_launch_flag=2;
-            returnShuttle(102);
-          }else{
-            mission_station_upgrade_label.text("Deployment status: " + mission_station_status + '%');
-            station_unlock_upgrade.html(mission_station_status+'%');
-          }
-
-        }
-
-        cycles--;
-      }
-
-      if(mission_station_status<100){PlayAudio(2);}
-
-      foundry_components_label.text("⯎" + numT(foundry_components));
-      mission_station_upgrade.text("⯎" + numT(mission_station_upgrade_price));
-      progress3(mission_station_stage,pb_mission_station,pb_mission_station_indicator,'');
-
-      factoryState();
-
-    });
-    mission_telescope_launch.click(function(){
-
-      PlayAudio(2);
-
-      mission_telescope_launch_flag=1;
-
-      mission_telescope_launch.hide();
-      mission_telescope_block_progress.show();
-      redToGreen(mission_telescope_upgrade_label);
-
-      takeShuttle(103);
-      mission_telescope_shuttle_name.text('"'+obtainShuttleName(103)+'"');
-
-      factoryState();
-
-
-
-    });
-    mission_telescope_upgrade.click(function(){
-
-      var cycles=0;
-
-      if(machines_buymax_toggle_flag==1){cycles=100;}
-      else{cycles=1;}
-
-      while(foundry_components-mission_telescope_upgrade_price>=0 && cycles>0){
-
-        foundry_components-=mission_telescope_upgrade_price;
-        mission_telescope_upgrade_price = mission_telescope_upgrade_price*1.1;
-
-        mission_telescope_stage+=25;
-        if(mission_telescope_stage==100){
-
-          mission_telescope_stage=0;
-          mission_telescope_status+=1;
-
-          if(mission_telescope_status>=100){
-            cycles=0;
-            PlayAudio(8);
-            mission_telescope_status=100;
-            mission_telescope_block_progress.hide();
-            mission_telescope_upgrade_label.text("Mission complete");
-            telescope_unlock_upgrade.html(mission_telescope_status+'%');
-            mission_telescope_launch_flag=2;
-            returnShuttle(103);
-          }else{
-            mission_telescope_upgrade_label.text("Deployment status: " + mission_telescope_status + '%');
-            telescope_unlock_upgrade.html(mission_telescope_status+'%');
-          }
-
-        }
-
-        cycles--;
-      }
-
-      if(mission_telescope_status<100){PlayAudio(2);}
-
-      foundry_components_label.text("⯎" + numT(foundry_components));
-      mission_telescope_upgrade.text("⯎" + numT(mission_telescope_upgrade_price));
-      progress3(mission_telescope_stage,pb_mission_telescope,pb_mission_telescope_indicator,'');
-
-      factoryState();
-
-    });
-
-    //space station
-    station_unlock_upgrade.click(function(){
-
-      PlayAudio(2);
-
-      //default parameters
-      stationInit();
-
-      //not doing factoryState() because not paying for unlock (paid for by deploy)
-      //factoryState();
-
-    });
-
-    //orbital telescope
-    telescope_unlock_upgrade.click(function(){
-
-      PlayAudio(2);
-
-      //default parameters
-      telescopeInit();
-
-      //not doing factoryState() because not paying for unlock (paid for by deploy)
-      //factoryState();
-
-    });
-    telescope_resolution_upgrade.click(function(){
+    pc_emission_upgrade.click(function(){
 
       PlayAudio(2);
 
@@ -3338,24 +4167,114 @@
       if(machines_buymax_toggle_flag==1){cycles=500;}
       else{cycles=1;}
 
-      while(foundry_components-telescope_resolution_upgrade_price>=0 && cycles>0){
+      while(foundry_components-pc_emission_upgrade_price>=0 && cycles>0){
 
-        foundry_components-=telescope_resolution_upgrade_price;
-        telescope_resolution_upgrade_price*=1.05;
-        telescope_resolution+=1000000;
+        foundry_components-=pc_emission_upgrade_price;
+        pc_emission_upgrade_price*=1.05;
+        pc_emission+=100;
 
         cycles--;
       }
 
       foundry_components_label.text("⯎" + numT(foundry_components));
-      telescope_resolution_upgrade.text( "⯎" +  numT(telescope_resolution_upgrade_price) );
-      telescope_resolution_label.text('[1-'+numT(telescope_resolution)+']');
+      pc_emission_upgrade.text( "⯎" +  numT(pc_emission_upgrade_price) );
+      pc_emission_label.text('[1-'+numT(pc_emission*pc_emission_boost)+']');
 
       factoryState();
 
     });
 
+    //cc
+    chief_check_toggle.click(function(){
 
+      PlayAudio(2);
+
+      ccSwitch();
+
+    });
+    chief_warp_check_toggle.click(function(){
+
+      PlayAudio(2);
+
+      if(chief_warp_check==0){
+        chief_warp_check=1;
+        chief_warp_check_toggle.removeClass('button3gray').addClass('button3blue').text("ON");
+      }else{
+        chief_warp_check=0;
+        chief_warp_check_toggle.removeClass('button3blue').addClass('button3gray').text("OFF");
+      }
+
+    });
+
+    //synchrotron
+    gambling_collect_upgrade.click(function(){
+
+      if(magnetron_state!=1 && gambling_collect_flag==0){//if magnetron is either running or armed, we can collect
+
+        PlayAudio(2);
+
+        gambling_collect_flag=1;//just collected, cannot collect anymore
+        gambling_collect_upgrade.removeClass('selected11').addClass('button11');
+
+        if(gambling_choice.length<3 || !gambling_choice){
+          gambling_choice.push(magnetron_choice);
+        }
+
+        let q1=magnetron_probability_game_set[gambling_choice[0]];
+        let q2=magnetron_probability_game_set[gambling_choice[1]];if(!q2){q2='';}
+        let q3=magnetron_probability_game_set[gambling_choice[2]];if(!q3){q3='';}
+
+        gambling_symbol_label.html( '<span class="blue" style="visibility:visible">'+q1+q2+q3+'</span>');
+
+        if(gambling_choice.length==3){
+
+          PlayAudio(8);
+
+          if(gambling_choice[0]==gambling_choice[1] && gambling_choice[1]==gambling_choice[2]){gambling_boosts+=5;}
+          else{gambling_boosts+=1;}
+
+          if(gambling_choice[0]==2 && gambling_choice[1]==4 && gambling_choice[2]==5){
+
+            secret1_flag=1;
+            foundry_waste_limit=750;
+            foundry_waste_label.text(foundry_waste+"/"+foundry_waste_limit);
+
+          }
+
+          gambling_boosts_label.text('['+gambling_boosts+']');
+          button2Enable(gambling_boosts_upgrade);
+
+          gambling_choice=[];
+          gambling_symbol_label.html( '<span class="blue" style="visibility:hidden">⍙</span>');
+
+        }
+
+      }
+    });
+    gambling_boosts_upgrade.click(function(){
+
+      //the overdrive logic is a copy of overdrive_upgrade.click(), so any changes made there should be done here
+
+      PlayAudio(5);
+
+      moneyCalc(money_limit);
+
+      button2Disable(overdrive_upgrade);
+
+      overdrive_price=total_money*ogr;
+      overdrive_label.text("⌬"+numT(total_money)+"/⌬"+numT(overdrive_price));
+
+      InventoryUpdate();
+
+      //reducing the amount of boosts
+      gambling_boosts--;
+
+      //updating gambling_block specific UI
+      gambling_boosts_label.text('['+gambling_boosts+']');
+      if(gambling_boosts>0){button2Enable(gambling_boosts_upgrade);}
+      else{button2Disable(gambling_boosts_upgrade);}
+
+    });
 
   });//document.ready
 
@@ -3378,13 +4297,15 @@
     actions_cycle=0;//currently unused
     bonus_multiplier=1;//resetting the bonus multiplier
 
-    magicnumber_label.text("["+magicnumber+"]");
-
     last_animal=999;//default value, to not trigger any lifeform boxes
     buildLifeformsCollection();
 
     eepc_panel.text("⌬0");
-    aa_panel.text("x"+ numT(prestige_multiplier));
+    if(powerplants_multiplier>1){
+      aa_panel.html("x" + numT(prestige_multiplier) + '<span style="color:#aaa">x' + numT(powerplants_multiplier) + '</span');
+    }else{
+      aa_panel.text("x" + numT(prestige_multiplier));
+    }
     rlab_panel.text( "+" +  numT( (bonus_multiplier+animal1_bonus_multiplier-1)*100 ) + "%" );
 
     //GENERATOR PRICES (SUPPLY LIMITS)
@@ -3393,11 +4314,11 @@
     three_price=0;button_three.text(numT(three_price));
     four_price=0;button_four.text(numT(four_price));
 
-    //each next is x100. The prestige multiplier is ever only applied here
-    one_init_multiplier=1*prestige_multiplier;
-    two_init_multiplier=100*prestige_multiplier;
-    three_init_multiplier=10000*prestige_multiplier;
-    four_init_multiplier=1000000*prestige_multiplier;
+    //each next is x100. The prestige_multiplier and powerplants_multiplier are only ever applied here
+    one_init_multiplier=1*prestige_multiplier*powerplants_multiplier;
+    two_init_multiplier=100*prestige_multiplier*powerplants_multiplier;
+    three_init_multiplier=10000*prestige_multiplier*powerplants_multiplier;
+    four_init_multiplier=1000000*prestige_multiplier*powerplants_multiplier;
 
     //MULTIPLIERS
     one_multiplier=one_init_multiplier;one_effectiveness_label.text("["+numT(one_multiplier)+"]");
@@ -3537,22 +4458,22 @@
     //Machine states (only those that are not set through prestige; engden_state and lscanner_state are handled later)
     battery_state=0;
     magnetron_state=0;
+    gambling_state=0;
     foundry_state=0;
-    shuttlebay_state=0;
-    mc_state=0;
-    station_state=0;
-    telescope_state=0;
+    radiator_state=0;
+    pc_state=0;
 
     //BATTERY
     battery_unlock_upgrade_price=Math.pow(10,13);battery_unlock_upgrade.text("⌬" + numT(battery_unlock_upgrade_price));
 
     //ENGDEN
-    //default values are required, so that when you do mouseover, it won't do NaN
-    auxiliary_effectiveness=1;//this is also required, since it is part of moneyCalc()
-    auxiliary_effectiveness1=0;
-    auxiliary_effectiveness2=0;
+    //resetting to default values
+
 
     if(engden_state==0){
+      auxiliary_effectiveness=1;//this is required, since it is part of moneyCalc()
+      auxiliary_effectiveness1=0;
+      auxiliary_effectiveness2=0;
       engden_title.hide();
       engden_block.hide();
       rank_label.text("[Operator]");
@@ -3566,10 +4487,25 @@
       lscanner_title.show();
       lscanner_block.show();
       rank_label.text("[Floor Admin]");
+    }else{
+      lscanner_title.hide();
+      lscanner_block.hide();
     }
 
     if(chief==1){
       rank_label.text("[Chief Engineer]");
+      chief_cc_block.show();
+      ccSetup();
+
+      //so that the auto-buy ui elements don't show, but the prestige items are marked as "sold"
+      warp_panel2_upgrade_flag=2;
+      warp_panel3_upgrade_flag=2;
+      warp_panel4_upgrade_flag=2;
+    }else{
+      chief_cc_block.hide();
+      //these variables can be potentially left over from previous cycles, so we make sure they are reset here
+      chief_check=0;
+      chief_warp_check=0;
     }
 
     //Init codes of the machines themselves are currently in each of the unlock events, since initially all machines are hidden and/or locked. Here we list those variables that affect the generators, so that they are reset after prestige
@@ -3577,16 +4513,13 @@
     battery_lock_block.show();
     magnetron_block.hide();
     magnetron_lock_block.hide();
+    gambling_block.hide();
+    radiator_block.hide();
+    radiator_lock_block.hide();
     foundry_block.hide();
     foundry_lock_block.hide();
-    shuttlebay_block.hide();
-    shuttlebay_lock_block.hide();
-    mc_block.hide();
-    mc_lock_block.hide();
-    station_block.hide();
-    station_lock_block.hide();
-    telescope_block.hide();
-    telescope_lock_block.hide();
+    pc_block.hide();
+    pc_lock_block.hide();
     battery_charge_percentage=0;//has to be 0 by default, because it is part of the moneyCalc() function all the time;
     magnetron_multiplier=1;//has to be 1 by default, because it is part of the moneyCalc() formula all the time;
     pb_money_indicator.css("background-color","#c149ff");//and setting the money indicator back to its normal color
@@ -3609,9 +4542,12 @@
     };
     research_playhead=7;
     buildResearchList();
+    researchSeed=getRandomInt(0,999999);
+    buildRNG(researchSeed);
 
     //updating UI with the established values
     InventoryUpdate();
+    nPCC();//updating the positron cubes number
 
     //starting the Grand Telescope
     startTelescope();
@@ -3622,11 +4558,9 @@
     //we actually don't save here, reason being - I want to give the player a chance to reload after a prestige reboot in case they made a mistake. This means that when you prestige (meaning, presss the "Reboot" button), you will now actually have 2 full minutes to decide to revert your prestige upgrades
     //SaveGame();
 
-    clearInterval(save_timer);
     save_timer_label.text(120);
     button3Disable(save_upgrade);
-    setTimeout('SaveLoop();',1000);//commented out for testing
-
+    SaveLoop();
 
   }
 
@@ -3640,7 +4574,9 @@
     All the machine events, for example, are tied to battery charging and are triggered from this function. A lot of generator functions as well.
     */
 
-    m_inc=m_inc*magnetron_multiplier*auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier);//where various multipliers are applied - Magnetron, Engineering Den, Research Lab and lifeform upgrade
+    var all_multipliers = magnetron_multiplier*auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier)*am_radiation_multiplier;
+
+    m_inc=m_inc*all_multipliers;//where various multipliers are applied - Magnetron, Engineering Den, Research Lab and lifeform upgrade
 
     /*
     The reason why we're doing money=money_limit and not simply money+=m_inc like in other places, is because I've found that with higher order numbers precision will begin to lapse, probably due to Math.floor being applied in various places. Which will eventually lead to money never being equal to money_limit. Therefore, it's safer to simply set money to money_limit.
@@ -3666,7 +4602,7 @@
       if(charge>charge_limit){charge=charge_limit;}
 
         //calculating effectiveness by taking a percentage of all money generated by generator, otherwise the effectiveness is going to flash from one value to the other, since in reality almost never would the charges from different generators arrive at the same time
-        let all = Math.floor( ((one_recent_money + two_recent_money + three_recent_money + four_recent_money) * (battery_charge_percentage/100)*0.0000001*animal7_battery_charge_multiplier) );
+        let all = Math.floor( ((one_recent_money + two_recent_money + three_recent_money + four_recent_money) * all_multipliers * (battery_charge_percentage/100)*0.0000001*animal7_battery_charge_multiplier) );
         battery_effectiveness_label.text("[⑂"+numT(all)+"]");
 
       ChargeUpdate();
@@ -3675,7 +4611,7 @@
 
       //Battery auto buy charge limit upgrade
       //in the past it had the condition charge-charge_limit_upgrade_price>=0, but I removed it, since at no point should there be no funds to buy an upgrade at charge=charge_limit
-      if(engden_state==1 && charge==charge_limit){
+      if( (engden_state==1 || chief_check==1) && charge==charge_limit){
         autoChargeLimit();
       }
 
@@ -3691,7 +4627,7 @@
         //heating up happens at 3
         //components production happens at 2
         if(foundry_production_flag==1 && foundry_heating_stage==2){//if foundry is in production mode
-          foundry_components+=Math.floor(foundry_components_multiplier*animal6_components_multiplier);
+          foundry_components+=Math.floor(foundry_components_multiplier*animal6_components_multiplier*foundry_components_multiplier_qm);
           foundry_components_label.text("⯎" + numT(foundry_components));
           if(foundry_temperature<0){foundry_temperature=0;}
 
@@ -3726,51 +4662,47 @@
 
       }//foundry furnace heating up
 
-      //Mission Control: Debris
-      if(mission_debris_launch_flag==1){
-          missionDebris();
-      }
+      //Particle Collector
+      if(pc_state==1){
+        pc_seconds_amount++;
+              if(pc_seconds_amount%15==0){
+                if(pc_seconds_amount>=60){pc_seconds_amount=0;}
 
-      //Orbital Telescope
-      if(telescope_state==1){
-        telescope_seconds_amount++;
-              if(telescope_seconds_amount%15==0){
-                if(telescope_seconds_amount>=60){telescope_seconds_amount=0;}
-                  telescope_stars_amount+=getRandomInt(1,telescope_resolution);
-                        if(telescope_stars_amount>=telescope_stars_amount_limit){
-                          telescope_stars_amount=0;
-                          PlayAudio(8);
-                          telescope_galaxies_amount++;
-                          telescope_galaxies_amount_label.text('['+numT(telescope_galaxies_amount)+']');
-                          if(telescope_magicnumber_flag==0 && telescope_galaxies_amount==2){
-                            telescope_magicnumber_flag=1;
-                            magicnumber++;
-                            magicnumber_label.text("["+magicnumber+"]");
-                          }
-                        }
+                  let p_inc=getRandomInt(1,pc_emission*pc_emission_boost);
 
-                telescope_stars_amount_label.text('['+numT(telescope_stars_amount)+'/1T]');
+                  positrons+=p_inc;all_time_positrons+=p_inc;
+                  nPCC();
+                  pc_positrons_label.text('['+numT(all_time_positrons)+'/'+numT(nextPositronCubesCost)+']');
 
-              }//if(telescope_seconds_amount>=60)
-        const secondsDegrees = ((telescope_seconds_amount / 60) * 360) + 90;
-        telescope_seconds.css('transform', 'rotate(' + secondsDegrees + 'deg)');
+              }//if(pc_seconds_amount>=60)
+        const secondsDegrees = ((pc_seconds_amount / 60) * 360) + 90;
+        pc_seconds.css('transform', 'rotate(' + secondsDegrees + 'deg)');
       }
 
 
     }//charging the battery
 
     //Engineering Den
-    couplingsWear();
+    if(warp_challenge2_flag<2){couplingsWear();}
+
+    //generators auto-buy
+    if(buymax_toggle_flag==1){
+      //this spends money and in everything apart from new generation restarts generators if money==money_limit
+      autoPowerUpgrade();
+    }
 
     //rlab auto-buy
     //I am adding a money check here so that we don't do anything in cases when there's not enough money, which is going to be the majority of cases
     if(rlab_autobuy_toggle_flag==1 && money-researchList.price[0]>=0){
 
+      //this check ensures that if the power tank is full, we restart the generators, since we are going to use that money on at least one rlab upgrade
       if(money==money_limit){restartGenerators();}
 
       while(money-researchList.price[0]>=0){
         bbCalc(0);//buying the first upgrade in the line
       }
+
+
 
       bbUI();
 
@@ -3789,14 +4721,15 @@
 
       if(num>=6){
 
-        moneyCalc(one_multiplier);
-        one_recent_money=one_multiplier;if(one_ratios_flag==1){one_ratios_flag=0;GeneratorRatios();}
+        moneyCalc(one_multiplier*radiator_one_multiplier);
+        one_recent_money=one_multiplier*radiator_one_multiplier;if(one_ratios_flag==1){one_ratios_flag=0;GeneratorRatios();}
         one_supply-=1;one_supply_label.text(numT(one_supply));
 
         InventoryUpdate();
 
         if(audio_mute_one==0){
           if(time_fundamental==1){PlayAudio(4);}
+          else if(time_fundamental==0.5){tick++;if(tick==2){PlayAudio(4);tick=0;}}
           else{tick++;if(tick==4){PlayAudio(4);tick=0;}}
         }
 
@@ -3804,9 +4737,9 @@
 
         if(one_supply<=0 || money==money_limit){
           clearInterval(one_interval);
-          one_supply=0;
-          //g_electric.css('background-image', 'url("img/g_electric2.png")');
+          one_supply=0;one_supply_label.text(numT(one_supply));
           button1Enable(button_one);
+          if(chief_check==1){button_one.trigger( "click");}
         }
 
       }
@@ -3831,14 +4764,15 @@
 
       if(num>=6){
 
-        moneyCalc(two_multiplier);
-        two_recent_money=two_multiplier;if(two_ratios_flag==1){two_ratios_flag=0;GeneratorRatios();}
+        moneyCalc(two_multiplier*radiator_two_multiplier);
+        two_recent_money=two_multiplier*radiator_two_multiplier;if(two_ratios_flag==1){two_ratios_flag=0;GeneratorRatios();}
         two_supply-=1;two_supply_label.text(numT(two_supply));
 
         InventoryUpdate();
 
         if(audio_mute_two==0){
           if(time_fundamental==1){PlayAudio(4);}
+          else if(time_fundamental==0.5){tick++;if(tick==2){PlayAudio(4);tick=0;}}
           else{tick++;if(tick==4){PlayAudio(4);tick=0;}}
         }
 
@@ -3849,8 +4783,9 @@
 
         if(two_supply<=0 || money==money_limit){
           clearInterval(two_interval);
-          two_supply=0;
+          two_supply=0;two_supply_label.text(numT(two_supply));
           button1Enable(button_two);
+          if(chief_check==1){button_two.trigger( "click");}
         }
 
       }
@@ -3873,14 +4808,15 @@
 
       if(num>=6){
 
-        moneyCalc(three_multiplier);
-        three_recent_money=three_multiplier;if(three_ratios_flag==1){three_ratios_flag=0;GeneratorRatios();}
+        moneyCalc(three_multiplier*radiator_three_multiplier);
+        three_recent_money=three_multiplier*radiator_three_multiplier;if(three_ratios_flag==1){three_ratios_flag=0;GeneratorRatios();}
         three_supply-=1;three_supply_label.text(numT(three_supply));
 
         InventoryUpdate();
 
         if(audio_mute_three==0){
           if(time_fundamental==1){PlayAudio(4);}
+          else if(time_fundamental==0.5){tick++;if(tick==2){PlayAudio(4);tick=0;}}
           else{tick++;if(tick==4){PlayAudio(4);tick=0;}}
         }
 
@@ -3888,8 +4824,9 @@
 
         if(three_supply<=0 || money==money_limit){
           clearInterval(three_interval);
-          three_supply=0;
+          three_supply=0;three_supply_label.text(numT(three_supply));
           button1Enable(button_three);
+          if(chief_check==1){button_three.trigger( "click");}
         }
 
       }
@@ -3912,14 +4849,15 @@
 
       if(num>=6){
 
-        moneyCalc(four_multiplier);
-        four_recent_money=four_multiplier;if(four_ratios_flag==1){four_ratios_flag=0;GeneratorRatios();}
+        moneyCalc(four_multiplier*radiator_four_multiplier);
+        four_recent_money=four_multiplier*radiator_four_multiplier;if(four_ratios_flag==1){four_ratios_flag=0;GeneratorRatios();}
         four_supply-=1;four_supply_label.text(numT(four_supply));
 
         InventoryUpdate();
 
         if(audio_mute_four==0){
           if(time_fundamental==1){PlayAudio(4);}
+          else if(time_fundamental==0.5){tick++;if(tick==2){PlayAudio(4);tick=0;}}
           else{tick++;if(tick==4){PlayAudio(4);tick=0;}}
         }
 
@@ -3927,8 +4865,9 @@
 
         if(four_supply<=0 || money==money_limit){
           clearInterval(four_interval);
-          four_supply=0;
+          four_supply=0;four_supply_label.text(numT(four_supply));
           button1Enable(button_four);
+          if(chief_check==1){button_four.trigger( "click");}
         }
 
       }
@@ -3944,13 +4883,14 @@
 
     nAC();//nextAntimatterCost
 
+    ultimate_ratio=antimatter/antimatter_cubes*25;
+
     storeState();
     progress_money();
 
     //this is here, because I want the progress bar to first get filled and then get reduced
     //placing this in moneyCalc() would lead to the progress bar simply never filling up
     if(night_shift==1 && money==money_limit){autoPowerLimit();}
-
 
     overdrive_label.text("⌬"+numT(total_money)+"/⌬"+numT(overdrive_price));
 
@@ -3965,7 +4905,21 @@
     }
 
     if(lscanner_state==1){//repopulation
-      repopulation_label.text( numT(antimatter/antimatter_cubes*100) );
+      if(ultimate_ratio<100){repopulation_label.text( numT(ultimate_ratio) );}
+      else{repopulation_label.text( 100 );}
+    }
+
+    //automatic prestige
+    if(chief_warp_check==1){
+      if(antimatter_cubes==0 && antimatter>=5){//first time prestige when you've got 5 antimatter
+        ccPrestige();
+      }
+      else if (antimatter_cubes>0){
+        //use the ultimate ratio once the Lifeforms Scanner is on, so that it is properly repopulated
+        if(lscanner_state==1 && ultimate_ratio>=100){ccPrestige();}
+        //use the quarter of the ultimate ratio before that, since this is a more optimal strategy
+        else if(lscanner_state==0 && ultimate_ratio>=25){ccPrestige();}
+      }
     }
 
   }
@@ -4023,7 +4977,12 @@
     }
 
     if(battery_state==0){
-      if(money-battery_unlock_upgrade_price>=0){button1Enable(battery_unlock_upgrade);}
+      if(money-battery_unlock_upgrade_price>=0){
+        button1Enable(battery_unlock_upgrade);
+        if(chief_check==1){
+          battery_unlock_upgrade.trigger("click");
+        }
+      }
       else{button1Disable(battery_unlock_upgrade);}
     }
 
@@ -4033,6 +4992,7 @@
     if(total_money-overdrive_price>=0){
       button2Enable(overdrive_upgrade);
       overdrive_price=total_money;
+      if(chief_check==1){overdrive_upgrade.trigger( "click");}
     }
     else{button2Disable(overdrive_upgrade);}
 
@@ -4043,15 +5003,35 @@
 
     if(magnetron_state>0){
 
-      if(charge-magnetron_multiplier_upgrade_price>=0){button1Enable(magnetron_multiplier_upgrade);}
+      if(charge-magnetron_multiplier_upgrade_price>=0){
+        button1Enable(magnetron_multiplier_upgrade);
+          if(chief_check==1 && device_magnetron_multiplier<warp_max_magnetron_multiplier){
+            magnetron_multiplier_upgrade.trigger("click");
+          }
+      }
       else{button1Disable(magnetron_multiplier_upgrade);}
 
-      if(charge-magnetron_duration_upgrade_price>=0){button1Enable(magnetron_duration_upgrade);}
+      if(charge-magnetron_duration_upgrade_price>=0){
+        button1Enable(magnetron_duration_upgrade);
+          if(chief_check==1 && magnetron_duration<warp_max_magnetron_duration){
+            magnetron_duration_upgrade.trigger("click");
+          }
+      }
       else{button1Disable(magnetron_duration_upgrade);}
 
     }else{
-      if(charge-magnetron_unlock_upgrade_price>=0){button1Enable(magnetron_unlock_upgrade);}
+      if(charge-magnetron_unlock_upgrade_price>=0){
+        button1Enable(magnetron_unlock_upgrade);
+        if(chief_check==1){
+          magnetron_unlock_upgrade.trigger("click");
+        }
+      }
       else{button1Disable(magnetron_unlock_upgrade);}
+    }
+
+    if(radiator_state==0){
+      if(foundry_components-radiator_unlock_upgrade_price>=0){button1Enable(radiator_unlock_upgrade);}
+      else{button1Disable(radiator_unlock_upgrade);}
     }
 
     if(foundry_state==1){
@@ -4064,61 +5044,14 @@
       else{button1Disable(foundry_unlock_upgrade);}
     }
 
-    if(shuttlebay_state==1){
+    if(pc_state==1){
 
-      if(foundry_components-build_shuttle_upgrade_price>=0){button1Enable(build_shuttle_upgrade);}
-      else{button1Disable(build_shuttle_upgrade);}
-
-      if(foundry_components-shuttle_capacity_upgrade_price>=0){button1Enable(shuttle_capacity_upgrade);}
-      else{button1Disable(shuttle_capacity_upgrade);}
-
-      if(repair_shuttle_flag==1 && foundry_components-repair_shuttle_upgrade_price>=0){button1Enable(repair_shuttle_upgrade);}
-      else{button1Disable(repair_shuttle_upgrade);}
+      if(foundry_components-pc_emission_upgrade_price>=0){button1Enable(pc_emission_upgrade);}
+      else{button1Disable(pc_emission_upgrade);}
 
     }else{
-      if(foundry_components-shuttlebay_unlock_upgrade_price>=0){button1Enable(shuttlebay_unlock_upgrade);}
-      else{button1Disable(shuttlebay_unlock_upgrade);}
-    }
-
-    if(mc_state==1){
-
-      if(shuttlesCheck()>0){button7Enable(mission_debris_launch);}
-      else{button7Disable(mission_debris_launch);}
-
-      if(shuttlesCheck()>0){button7Enable(mission_station_launch);}
-      else{button7Disable(mission_station_launch);}
-
-      if(shuttlesCheck()>0){button7Enable(mission_telescope_launch);}
-      else{button7Disable(mission_telescope_launch);}
-
-      if(foundry_components-mission_station_upgrade_price>=0){button1Enable(mission_station_upgrade);}
-      else{button1Disable(mission_station_upgrade);}
-
-      if(foundry_components-mission_telescope_upgrade_price>=0){button1Enable(mission_telescope_upgrade);}
-      else{button1Disable(mission_telescope_upgrade);}
-
-    }else{
-      if(shuttlesCheck()>0){button1Enable(mc_unlock_upgrade);}
-      else{button1Disable(mc_unlock_upgrade);}
-    }
-
-    if(station_state==1){
-
-      //
-
-    }else{
-      if(mission_station_launch_flag==2 && mission_debris_amount<1000000000){button1Enable(station_unlock_upgrade);}
-      else{button1Disable(station_unlock_upgrade);}
-    }
-
-    if(telescope_state==1){
-
-      if(foundry_components-telescope_resolution_upgrade_price>=0){button1Enable(telescope_resolution_upgrade);}
-      else{button1Disable(telescope_resolution_upgrade);}
-
-    }else{
-      if(mission_telescope_launch_flag==2 && mission_debris_amount<1000000000){button1Enable(telescope_unlock_upgrade);}
-      else{button1Disable(telescope_unlock_upgrade);}
+      if(foundry_components-pc_unlock_upgrade_price>=0){button1Enable(pc_unlock_upgrade);}
+      else{button1Disable(pc_unlock_upgrade);}
     }
 
     if(charge-charge_limit_upgrade_price>=0){button1Enable(charge_limit_upgrade);}
@@ -4129,6 +5062,94 @@
 
   }
 
+  function prestigeOk(){
+    //LOOPS
+    clearInterval(telescope_timer);telescope_timer=null;//stop the telescope
+    clearInterval(magnetron_interval);magnetron_interval=null;//stop the magnetron
+    clearInterval(save_timer);button3Disable(save_upgrade);save_timer=null;//stop the save timer, so that if someone reloads at this point, we don't run into problems
+    clearInterval(furnace_cooling_timer);furnace_cooling_timer=null;
+
+    stopGenerators();
+
+    closeWindows();
+    all.hide();
+
+    //if the player rebooted too quickly, lifeforms become rare for that run
+    if( ultimate_ratio<100 ){recency=1;}
+    else{recency=0;}//recency=0 is what you want
+
+    //challenges
+
+    if(antimatter==555 && warp_challenge2_flag==0){
+      warp_challenge2_flag=1;
+    }
+    if(all_time_positron_cubes>=555 && warp_challenge3_flag==0){
+      warp_challenge3_flag=1;
+    }
+    if(one_generation==generation_limit && two_generation==generation_limit && three_generation==generation_limit && four_generation==generation_limit && warp_challenge4_flag==0){
+      warp_challenge4_flag=1;
+    }
+
+    //this sets buff_challenge1_flag to failed, since this is a warpless challenge
+    if(buff_challenge1_flag==0){buff_challenge1_flag=3;}
+
+    antimatter_cubes+=antimatter;antimatter=0;//converting antimatter to cubes;i reset antimatter here, although Init does it as well
+
+
+    if(antimatter_cubes>0){prestige_multiplier=antimatter_cubes;}
+    else prestige_multiplier=1;
+
+    //the more antimatter_cubes we created, the farther the first overdrive price is going to be
+    if(antimatter_cubes*powerplants_multiplier<100){//before we reach full automation, we have more overdrives
+
+      //this adds +500 for each generated antimatter cube:
+      //0 or 1 means 1000
+      //2 means 1500
+      //3 means 2000 and so on
+      if(antimatter_cubes>0){overdrive_price=1000+(antimatter_cubes-1)*500;}
+      else{overdrive_price=1000;}
+
+    }else{//in this mode overdrives become much rarer
+
+      overdrive_price=all_time_money/1000;
+
+      //we also begin to provide a long money limit
+      //removing this even with all the auto-buy modes leads to unwanted behavior, because in the beginning the generators appear frozen as the power limit auto-buys constantly, stopping and restarting the generators
+      money_limit_init=all_time_money/10000;
+      money_limit_upgrade_price_init=all_time_money/50000;
+
+    }
+
+
+    //additionally, the rate of overdrive price growth also increases
+    if(antimatter_cubes<=100){
+      ogr=2+antimatter_cubes*0.05;
+    }else{
+      ogr=5;
+    }
+
+    if(lscanner_state==1){
+      ogr=10;//this is also set in the floor admin warp upgrade
+    }
+
+    prestige_flag=1;//so that we can buy upgrades
+    prestigeInit();
+    reboot_backtogame.hide();
+    reboot_upgrade.show();
+    prestige_board.show();
+  }
+  function rebootOk(){
+    prestige_board.hide();
+    all.show();
+
+    //autobuy_purse provides values to these flags from the previous iteration, saved temporarily in stopGenerators()
+    buymax_toggle_flag=parseInt(autobuy_purse[0]);
+    rlab_autobuy_toggle_flag=parseInt(autobuy_purse[1]);
+    night_shift=parseInt(autobuy_purse[2]);
+
+    //resetting game
+    Init();
+  }
   function prestigeState(){
 
     var ac_owned=antimatter_cubes-antimatter_cubes_spent;//getting the available cubes
@@ -4139,115 +5160,359 @@
     if(antimatter_cubes==0){am_text="x1";}else{am_text="x"+numT(antimatter_cubes);}
     ac_all_label.text(am_text);
 
-    //academy
-    if(ac_owned-warp_rank1_upgrade_price>=0){button2Enable(warp_rank1_upgrade);}
-    else{button2Disable(warp_rank1_upgrade);}
-    if(ac_owned-warp_rank2_upgrade_price>=0){button2Enable(warp_rank2_upgrade);}
-    else{button2Disable(warp_rank2_upgrade);}
-    if(ac_owned-warp_rank3_upgrade_price>=0){button2Enable(warp_rank3_upgrade);}
-    else{button2Disable(warp_rank3_upgrade);}
-    if(ac_owned-warp_rank4_upgrade_price>=0){button2Enable(warp_rank4_upgrade);}
-    else{button2Disable(warp_rank4_upgrade);}
-
-    //engineering
-
-    if(ac_owned-warp_panel1_upgrade_price>=0){button2Enable(warp_panel1_upgrade);}
-    else{button2Disable(warp_panel1_upgrade);}
-    if(ac_owned-warp_panel2_upgrade_price>=0){button2Enable(warp_panel2_upgrade);}
-    else{button2Disable(warp_panel2_upgrade);}
-    if(ac_owned-warp_panel3_upgrade_price>=0){button2Enable(warp_panel3_upgrade);}
-    else{button2Disable(warp_panel3_upgrade);}
-
-    if(ac_owned-warp_magnetron_multiplier_upgrade_price>=0){button2Enable(warp_magnetron_multiplier_upgrade);}
-    else{button2Disable(warp_magnetron_multiplier_upgrade);}
-    if(ac_owned-warp_magnetron_duration_upgrade_price>=0){button2Enable(warp_magnetron_duration_upgrade);}
-    else{button2Disable(warp_magnetron_duration_upgrade);}
-    if(ac_owned-warp_magnetron_alerting_upgrade_price>=0){button2Enable(warp_magnetron_alerting_upgrade);}
-    else{button2Disable(warp_magnetron_alerting_upgrade);}
-
-    //status
-    if(ac_owned-warp_magicnumber_upgrade_price>=0){button2Enable(warp_magicnumber_upgrade);}
-    else{button2Disable(warp_magicnumber_upgrade);}
+    //setting up prices
+    all_button8s.text("▣" + numT(warp_price));
 
     //marking as sold
-    if(warp_max_magnetron_duration==120){warp_magnetron_duration_upgrade.text("Sold");button2Disable(warp_magnetron_duration_upgrade);}
-    if(warp_max_magnetron_multiplier==20){warp_magnetron_multiplier_upgrade.text("Sold");button2Disable(warp_magnetron_multiplier_upgrade);}
-    if(warp_magnetron_alerting==1){warp_magnetron_alerting_upgrade.text("Sold");button2Disable(warp_magnetron_alerting_upgrade);}
+    if(warp_max_magnetron_duration==120){warp_magnetron_duration_upgrade.text("Sold");button8Disable(warp_magnetron_duration_upgrade);}
+    if(warp_max_magnetron_multiplier==20){warp_magnetron_multiplier_upgrade.text("Sold");button8Disable(warp_magnetron_multiplier_upgrade);}
+    if(warp_magnetron_alerting==1){warp_magnetron_alerting_upgrade.text("Sold");button8Disable(warp_magnetron_alerting_upgrade);}
 
-    if(engden_state==1){warp_rank1_upgrade.text("Sold");button2Disable(warp_rank1_upgrade);}
-    if(lscanner_state==1){warp_rank2_upgrade.text("Sold");button2Disable(warp_rank2_upgrade);}
+    if(warp_panel1_upgrade_flag==1){warp_panel1_upgrade.text("Sold");button8Disable(warp_panel1_upgrade);}
+    if(warp_panel2_upgrade_flag>0){warp_panel2_upgrade.text("Sold");button8Disable(warp_panel2_upgrade);}
+    if(warp_panel3_upgrade_flag>0){warp_panel3_upgrade.text("Sold");button8Disable(warp_panel3_upgrade);}
+    if(warp_panel4_upgrade_flag>0){warp_panel4_upgrade.text("Sold");button8Disable(warp_panel4_upgrade);}
 
-    if(warp_magicnumber_upgrade_flag==1){warp_magicnumber_upgrade.text("Sold");button2Disable(warp_magicnumber_upgrade);}
 
-    if(warp_panel1_upgrade_flag==1){warp_panel1_upgrade.text("Sold");button2Disable(warp_panel1_upgrade);}
-    if(warp_panel2_upgrade_flag==1){warp_panel2_upgrade.text("Sold");button2Disable(warp_panel2_upgrade);}
-    if(warp_panel3_upgrade_flag==1){warp_panel3_upgrade.text("Sold");button2Disable(warp_panel3_upgrade);}
+
+    //handling academy
+    //hiding all buttons, but the first training
+    warp_rank2_training1_upgrade.hide();
+    warp_rank2_training2_upgrade.hide();
+    //warp_rank1_upgrade.hide();
+    warp_rank2_upgrade.hide();
+    //evaluate academy progression in the right order
+    if(engden_state==1){
+      warp_rank1_upgrade.text("Sold");
+      button8Disable(warp_rank1_upgrade);
+      warp_rank2_training1_upgrade.show();
+    }
+    if(warp_rank2_training1_flag==1 || quantum_upgrade_flag[1]==1){
+      warp_rank2_training1_upgrade.text("Done");
+      button8Disable(warp_rank2_training1_upgrade);
+      warp_rank2_training2_upgrade.show();
+      if(quantum_upgrade_flag[1]==1){warp_rank2_training1_upgrade.show();}
+    }
+    if(warp_rank2_training2_flag==1 || quantum_upgrade_flag[1]==1){
+      warp_rank2_training2_upgrade.text("Done");
+      button8Disable(warp_rank2_training2_upgrade);
+      warp_rank2_upgrade.show();
+    }
+    if(lscanner_state==1 || quantum_upgrade_flag[1]==1){
+      warp_rank2_upgrade.text("Sold");
+      button8Disable(warp_rank2_upgrade);
+    }
+
+    //Handling challenges
+    if(warp_challenge1_flag==0){warp_challenge1_upgrade.text("Claim");button2Disable(warp_challenge1_upgrade);}
+    else if(warp_challenge1_flag==1){warp_challenge1_upgrade.text("Claim");button2Enable(warp_challenge1_upgrade);}
+    else if(warp_challenge1_flag==2){warp_challenge1_upgrade.text("Obtained");warp_challenge1_upgrade.attr("class","button13");}
+
+    if(warp_challenge2_flag==0){warp_challenge2_upgrade.text("Claim");button2Disable(warp_challenge2_upgrade);}
+    else if(warp_challenge2_flag==1){warp_challenge2_upgrade.text("Claim");button2Enable(warp_challenge2_upgrade);}
+    else if(warp_challenge2_flag==2){warp_challenge2_upgrade.text("Obtained");warp_challenge2_upgrade.attr("class","button13");}
+
+    if(warp_challenge3_flag==0){warp_challenge3_upgrade.text("Claim");button2Disable(warp_challenge3_upgrade);}
+    else if(warp_challenge3_flag==1){warp_challenge3_upgrade.text("Claim");button2Enable(warp_challenge3_upgrade);}
+    else if(warp_challenge3_flag==2){warp_challenge3_upgrade.text("Obtained");warp_challenge3_upgrade.attr("class","button13");}
+
+    if(warp_challenge4_flag==0){warp_challenge4_upgrade.text("Claim");button2Disable(warp_challenge4_upgrade);}
+    else if(warp_challenge4_flag==1){warp_challenge4_upgrade.text("Claim");button2Enable(warp_challenge4_upgrade);}
+    else if(warp_challenge4_flag==2){warp_challenge4_upgrade.text("Obtained");warp_challenge4_upgrade.attr("class","button13");}
+
+    if(buff_challenge1_flag==0 || buff_challenge1_flag==3){buff_challenge1_upgrade.text("Claim");button2Disable(buff_challenge1_upgrade);}
+    else if(buff_challenge1_flag==1){buff_challenge1_upgrade.text("Claim");button2Enable(buff_challenge1_upgrade);}
+    else if(buff_challenge1_flag==2){buff_challenge1_upgrade.text("Obtained");buff_challenge1_upgrade.attr("class","button13");}
+
+    if(buff_challenge2_flag==0 || buff_challenge2_flag==3){buff_challenge2_upgrade.text("Claim");button2Disable(buff_challenge2_upgrade);}
+    else if(buff_challenge2_flag==1){buff_challenge2_upgrade.text("Claim");button2Enable(buff_challenge2_upgrade);}
+    else if(buff_challenge2_flag==2){buff_challenge2_upgrade.text("Obtained");buff_challenge2_upgrade.attr("class","button13");}
+
+    //setting up quantum upgrades
+
+    //hiding various service windows
+    warp_qm_warning.hide();
+    warp_qm_confirm.hide();
+
+    //resetting the temp array
+    quf_temp_bag=[0,0,0,0,0,0];
+    warp_qm1_upgrade.removeClass("item3_selected").addClass("item3");
+    warp_qm2_upgrade.removeClass("item3_selected").addClass("item3");
+    warp_qm3_upgrade.removeClass("item3_selected").addClass("item3");
+    warp_qm4_upgrade.removeClass("item3_selected").addClass("item3");
+    warp_qm5_upgrade.removeClass("item3_selected").addClass("item3");
+    warp_qm6_upgrade.removeClass("item3_selected").addClass("item3");
+
+    if(warp_challenge1_flag==2){//if quantum upgrades are unlocked
+      warp_qm_table.show();
+      warp_qm_challenges.show();
+      warp_warpless_table.show();
+
+      if(warp_challenge3_flag==2){
+        warp_solar_amp_title.text('Solar Amplifier II');
+        warp_solar_amp_descr.text('Boosts Antimatter Amplifier by x3 and speed by 200%');
+      }else{
+        warp_solar_amp_title.text('Solar Amplifier');
+        warp_solar_amp_descr.text('Boosts Antimatter Amplifier by x2');
+      }
+
+      if(warp_challenge4_flag==2){
+        warp_zoo_keeper_title.text('Zoo Keeper II');
+        warp_zoo_keeper_descr.text('Get 5 lifeforms from every Lifeform upgrade');
+      }else{
+        warp_zoo_keeper_title.text('Zoo Keeper');
+        warp_zoo_keeper_descr.text('Get 2 lifeforms from every Lifeform upgrade');
+      }
+
+    }else{
+      warp_qm_table.hide();
+      warp_qm_challenges.hide();
+      warp_warpless_table.hide();
+    }
 
   }
   function prestigeInit(){
 
-    //setting up prices
-
-    //academy
-    warp_rank1_upgrade_price=Math.pow(10,2)*5;warp_rank1_upgrade.text("▣" + numT(warp_rank1_upgrade_price));
-    warp_rank2_upgrade_price=Math.pow(10,9)*5;warp_rank2_upgrade.text("▣" + numT(warp_rank2_upgrade_price));
-    warp_rank3_upgrade_price=Math.pow(10,12);warp_rank3_upgrade.text("▣" + numT(warp_rank3_upgrade_price));
-    warp_rank4_upgrade_price=Math.pow(10,16);warp_rank4_upgrade.text("▣" + numT(warp_rank4_upgrade_price));
-
-    //engineering
-    warp_panel1_upgrade_price=5;warp_panel1_upgrade.text("▣" + numT(warp_panel1_upgrade_price));
-    warp_panel2_upgrade_price=50;warp_panel2_upgrade.text("▣" + numT(warp_panel2_upgrade_price));
-    warp_panel3_upgrade_price=Math.pow(10,4)*5;warp_panel3_upgrade.text("▣" + numT(warp_panel3_upgrade_price));
-
-    warp_magnetron_duration_upgrade_price=Math.pow(10,6)*5;warp_magnetron_duration_upgrade.text("▣" + numT(warp_magnetron_duration_upgrade_price));
-    warp_magnetron_multiplier_upgrade_price=Math.pow(10,7)*5;warp_magnetron_multiplier_upgrade.text("▣" + numT(warp_magnetron_multiplier_upgrade_price));
-    warp_magnetron_alerting_upgrade_price=Math.pow(10,8)*5;warp_magnetron_alerting_upgrade.text("▣" + numT(warp_magnetron_alerting_upgrade_price));
-
-    //status
-    warp_magicnumber_upgrade_price=Math.pow(10,4)*5;warp_magicnumber_upgrade.text("▣" + numT(warp_magicnumber_upgrade_price));
+    //enable all buttons, so that in situations when a new powerplant is started all the warp upgrade buttons get properly reset (we don't need to reset challenge buttons, since they work beyond any prestige cycles)
+    button8Enable(all_button8s);
 
     prestigeState();
 
   }
+  function resetPrestige(){
+    //this function resets all prestige upgrades to their original values, as well as positrons, antimatter, animal upgrades and other upgrades that work across prestige cycles
 
-  function magnetronRequest(){
+    //prestige upgrades
+    warp_price=5;
+    //this is to compensate for the fact that auto warp upgrades are already provided
+    //we multiply it, because a quantum upgrade can independently also raise the price
+    if(chief==1){warp_price=warp_price*1000;}
+    warp_price_rate=10;
+      warp_panel1_upgrade_flag=1;
+      warp_panel2_upgrade_flag=0;
+      warp_panel3_upgrade_flag=0;
+      warp_panel4_upgrade_flag=0;
+      warp_rank1_training1_flag=0;
+      warp_rank2_training1_flag=0;
+      warp_rank2_training2_flag=0;
 
-    if(Math.floor((Math.random() * (magnetron_probability_max - animal4_magnetron_probability_modifier ) ) + 1)==25){
+      //challenges are never reset
+      //warp_challenge1_flag=0;
+      //warp_challenge2_flag=0;
 
-      magnetron_state=2;//set magnetron state to armed
+    //PRESTIGE SPECIAL VARIABLES
+    warp_max_magnetron_duration=60;//default max magnetron duration; later upgraded to 120
+    warp_max_magnetron_multiplier=10;//default max magnetron multiplier; later upgraded to 20
+    warp_magnetron_alerting=0;//default value, later upgraded to 1
 
-      magnetron_buttonEnable();
+    buymax_toggle_flag=0;
+    rlab_autobuy_toggle_flag=0;
+    night_shift=0;
+    machines_buymax_toggle_flag=0;
+        machines_buymax_toggle.hide();
+        buymax_toggle.hide();
+        rlab_autobuy_toggle.hide();
 
-      if(warp_magnetron_alerting==1){
-        PlayAudio(6);
+    engden_state=0;
+
+    //lscanner stays if a particular quantum upgrade was bought
+    if(quantum_upgrade_flag[1]==0){
+      lscanner_state=0;
+    }else{
+      lscanner_state=1;
+      warp_price=warp_price*1000;//to compensate for the two trainings and the rank of Floor Admin
+    }
+    //but we reset lifeforms and other lscanner variables in either case
+    ogr=2;//default overdrive price growth rate; it will increase with the increase of antimatter
+    recency=0;
+    lifeforms_collection=[0,0,0,0,0,0,0,0];
+
+
+    //resetting all-time antimatter and money variables
+    antimatter_cubes=0;
+    antimatter_cubes_spent=0;
+    all_time_antimatter=0;
+    all_time_money=0;
+    prestige_multiplier=1;
+    prevAntimatterCost=0;
+    nAC();//to update the antimatter progress bar
+
+    //resetting positrons for the next cycle
+    all_time_positrons=0;
+    all_time_positron_cubes=0;
+    positron_cubes=0;
+    positron_cubes_spent=0;//not currently used, but just in case
+    magicnumber_label.text('[0]');
+
+    overdrive_price=1000;
+    money_limit_init=50;
+    money_limit_upgrade_price_init=10;
+
+    //chief_check block; these variables are set in a way to prepare the game for chief engineer automation (chief_check=1); because it will buy battery and magnetron, we need to reset certain variables that would otherwise be irrelevant in the normal run;
+    charge=0;//if this is not reset, chief_check will immediately buy magnetron
+
+    gambling_choice=[];//Quantum Wipe and new Power Plant resets Synchrotron progress
+    gambling_boosts=0;
+
+  }
+
+  function ppaInit(){
+
+    item3_pp.hide();
+    item3_pp_plus.css('visibility','hidden');
+
+    one_x=0;//reusing this variable to animate power plant strips
+
+
+    //building
+    for (let i = 0; i < powerplants_amount; i++) {
+
+      if(i==0){
+        pp1.show();
+      }
+      if(i==1){
+        pp2.show();
+        pp2_add.hide();
+      }
+      if(i==2){
+        pp3.show();
+        pp3_add.hide();
+      }
+      if(i==3){
+        pp4.show();
+        pp4_add.hide();
+      }
+      if(i==4){
+        pp5.show();
+        pp5_add.hide();
       }
 
     }
 
+    ppaState();
+
+    if(!ppa_interval){ppa_interval=setInterval(ppaLoop,30);}
+
   }
-  function couplingsWear(){
+  function ppaState(){
 
-    if(Math.floor( ( Math.random() * auxiliary_probability_max ) + 1)==5){
+    var powerplants_price_label;
+    var ppa_upgrade_price2;
 
-      var avalue;
-      var aeu_combined=aux_eff_unit+animal5_auxiliary_effectiveness_modifier;
+    //if galactic amplifier wasn't activated, we make the price of this one always +1 more than what the player currently has, so that you have to apply these upgrades sequentially
+    if(powerplants_multiplier>=5){ppa_upgrade_price2=ppa_upgrade_price;}
+    else{ppa_upgrade_price2=parseInt(ppa_upgrade_price+1);}
 
-      if(Math.floor((Math.random() * 2) + 1)==1){
-        avalue=parseInt(auxiliary_lever1.val())-1;
-        if(avalue<-50){avalue=-50;}
-        auxiliary_lever1.val(avalue);
-        auxiliary_effectiveness1=aeu_combined-Math.abs( Math.floor(avalue/10) * (aeu_combined/5) );
-      }else{
-        avalue=parseInt(auxiliary_lever2.val())+1;
-        if(avalue>50){avalue=50;}
-        auxiliary_lever2.val(avalue);
-        auxiliary_effectiveness2=aeu_combined-Math.abs( Math.ceil(auxiliary_lever2.val()/10) * (aeu_combined/5) );
+    //setting up button labels
+    if(ppa_upgrade_price==1){powerplants_price_label=' Power Plant';}
+    else{powerplants_price_label=' Power Plants';}
+
+    ppa_upgrade1.text(ppa_upgrade_price+powerplants_price_label);
+    ppa_upgrade2.text(ppa_upgrade_price+powerplants_price_label);
+    ppa_upgrade3.text(ppa_upgrade_price2+' Power Plants');//price will always be >1
+    ppa_upgrade4.text(ppa_upgrade_price+powerplants_price_label);
+
+    //checking button state
+
+    if(powerplants_amount>=ppa_upgrade_price){button10Enable(ppa_upgrade1);}
+    else{button10Disable(ppa_upgrade1);}
+
+    if(powerplants_amount>=ppa_upgrade_price){button10Enable(ppa_upgrade2);}
+    else{button10Disable(ppa_upgrade2);}
+
+    if(powerplants_amount>=ppa_upgrade_price2){button10Enable(ppa_upgrade3);}
+    else{button10Disable(ppa_upgrade3);}
+
+    if(powerplants_amount>=ppa_upgrade_price){button10Enable(ppa_upgrade4);}
+    else{button10Disable(ppa_upgrade4);}
+
+    //marking  as sold
+
+    if(time_fundamental<0.5){
+      ppa_upgrade1.text("Activated");
+      ppa_upgrade1.prop('disabled', true).removeClass('button10').removeClass('disabled10').addClass('activated10');
+      ppa_upgrade1_title.css('color','#30b8d0');
+    }else{
+      ppa_upgrade1_title.css('color','#db3356');
+    }
+
+    if(powerplants_multiplier>=5){
+      ppa_upgrade2.text("Activated");
+      ppa_upgrade2.prop('disabled', true).removeClass('button10').removeClass('disabled10').addClass('activated10');
+      ppa_upgrade2_title.css('color','#30b8d0');
+    }else{
+      ppa_upgrade2_title.css('color','#db3356');
+    }
+
+    if(powerplants_multiplier>=50){
+      ppa_upgrade3.text("Activated");
+      ppa_upgrade3.prop('disabled', true).removeClass('button10').removeClass('disabled10').addClass('activated10');
+      ppa_upgrade3_title.css('color','#30b8d0');
+    }else{
+      ppa_upgrade3_title.css('color','#db3356');
+    }
+
+    if(chief==1){
+      ppa_upgrade4.text("Activated");
+      ppa_upgrade4.prop('disabled', true).removeClass('button10').removeClass('disabled10').addClass('activated10');
+      ppa_upgrade4_title.css('color','#30b8d0');
+    }else{
+      ppa_upgrade4_title.css('color','#db3356');
+    }
+
+
+    //0.99.5 endgame
+    if(powerplants_amount==5){
+
+      endgame.show();
+
+      //marking warp_challenge1 as done
+      if(warp_challenge1_flag==0){
+        warp_challenge1_flag=1;
       }
 
-      auxiliary_effectiveness=1+(auxiliary_effectiveness1+auxiliary_effectiveness2)*0.01;
-      auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
+      //marking buff_challenge1 as done
+      if(buff_challenge1_flag==0){
+        buff_challenge1_flag=1;
+      }
 
-      GeneratorRatios();
+      endgame_quantum_wipe_label.text('');
+
+      if(warp_challenge1_flag==1){
+        endgame_quantum_wipe_label.html('<b>Primal Grind</b> has been completed! Go back to the power plant and warp to claim challenge.');
+      }
+
+      if(buff_challenge1_flag==1){
+        endgame_quantum_wipe_label.html('<b>Maven Grind</b> has been completed! Go back to the power plant and warp to claim challenge.');
+      }
+
+
+    }else{//if(powerplants_amount==5)
+      endgame.hide();
+    }
+
+
+
+  }
+  function ppaLoop(){
+    one_x+=1;$(pp_quadrant).css('background-position', + one_x + 'px 0px');
+  }
+  function ppaReset(){
+    powerplants_amount=0;
+    time_fundamental=1;
+    powerplants_multiplier=1;
+    ppa_upgrade_price=1;
+    chief=0;
+
+    //solar amplifier
+    if(quantum_upgrade_flag[3]==1){
+
+      if(warp_challenge3_flag==2){
+        powerplants_multiplier=3;
+        time_fundamental=0.5;
+      }else{
+        powerplants_multiplier=2;
+      }
 
     }
 
@@ -4257,6 +5522,9 @@
   function batteryInit(){
 
     battery_state=1;//battery is unlocked
+
+    battery_min_flag=0;//starts maximized
+    battery_body.show();
 
     //function contains what is required to initialize the unit
     charge_limit=50;charge_limit_label.text("["+numT(charge_limit)+"]");
@@ -4280,13 +5548,20 @@
     battery_lock_block.hide();
     battery_block.show();
 
-    magnetron_unlock_upgrade_price=Math.pow(10,6);magnetron_unlock_upgrade.text("⑂" + numT(magnetron_unlock_upgrade_price));//price was Math.pow(10,9);
+    magnetron_unlock_upgrade_price=Math.pow(10,6);magnetron_unlock_upgrade.text("⑂" + numT(magnetron_unlock_upgrade_price));
     button1Disable(magnetron_unlock_upgrade);
     magnetron_lock_block.show();
   }
   function magnetronInit(){
 
     magnetron_state=1;//magnetron is unlocked
+
+    magnetron_min_flag=0;
+    magnetron_body.show();
+
+    magnetron_choice=999;//default value
+
+    magnetron_probability_game_label.text(''+magnetron_probability_game_set[getRandomInt(0,5)]+' '+magnetron_probability_game_set[getRandomInt(0,5)]+' '+magnetron_probability_game_set[getRandomInt(0,5)]+' '+magnetron_probability_game_set[getRandomInt(0,5)]+'');
 
     //function contains what is required to initialize the unit
     device_magnetron_multiplier=2;magnetron_multiplier_label.text("[x"+device_magnetron_multiplier+"]");magnetron_button.text("x"+(device_magnetron_multiplier+animal3_magnetron_multiplier));
@@ -4301,7 +5576,8 @@
       if(animal2_magnetron_duration>0){animal2_magnetron_duration_label.text('+'+animal2_magnetron_duration);}
       else{animal2_magnetron_duration_label.text('');}
 
-    magnetron_probability_max=2000;
+    //this is now set at the top of the page at variable declaration, since buildLifeformsCollection() must happen early in LoadGame(), before this variable would be set in this function, and probability is displayed on the magnetron. Didn't want to call buildLifeformsCollection again. And this is, basically, a const anyway.
+    //magnetron_probability_max=2000;
 
     magnetron_buttonDisable();
     magnetron_duration_upgrade.show();
@@ -4313,13 +5589,23 @@
     foundry_unlock_upgrade_price=Math.pow(10,17);foundry_unlock_upgrade.text("⑂" + numT(foundry_unlock_upgrade_price));
     button1Disable(foundry_unlock_upgrade);
     foundry_lock_block.show();
+
+    if(quantum_upgrade_flag[5]==1){
+      gamblingInit();
+    }
   }
   function foundryInit(){
 
     foundry_state=1;//foundry is unlocked
 
+    foundry_min_flag=0;
+    foundry_body.show();
+
+    if(quantum_upgrade_flag[0]==1){foundry_components_multiplier_qm=1000000;}
+    else{foundry_components_multiplier_qm=1;}
+
     foundry_heating_stage=0;
-    foundry_components_multiplier=1;foundry_components_multiplier_label.text("["+Math.floor(foundry_components_multiplier)+"]");
+    foundry_components_multiplier=1;foundry_components_multiplier_label.text("["+numT(foundry_components_multiplier*foundry_components_multiplier_qm)+"]");
     foundry_production_flag=0;//when initialized, the foundry is in non-production mode and requires heating up first
     foundry_components=0;
 
@@ -4344,242 +5630,324 @@
 
     //waste
     foundry_waste=0;
-    foundry_waste_limit=1000;
-    if(chief==1){foundry_waste_limit-=50;}
+
+      if(secret1_flag==1){
+        foundry_waste_limit=750;
+      }else{foundry_waste_limit=1000;}
+
     button1Disable(foundry_recycle_upgrade);
     foundry_recycle_upgrade.text("Recycle ⌬");
     foundry_waste_label.text(foundry_waste+"/"+foundry_waste_limit);
 
-    shuttlebay_unlock_upgrade_price=Math.pow(10,6);shuttlebay_unlock_upgrade.text("⯎" + numT(shuttlebay_unlock_upgrade_price));
-    button1Disable(shuttlebay_unlock_upgrade);
-    shuttlebay_lock_block.show();
-  }
-  function shuttlebayInit(){
-
-    shuttlebay_state=1;//shuttlebay is unlocked
-
-    shuttle_fleet={//re-initializing with proper shuttle names
-      name:['Ganges','Yangtzee Kiang','Mekong','Yukon','Rio Grande'],
-      availability:['0','0','0','0','0'],
-    };
-    drawShuttles();
-    build_shuttle_row.show();
-
-    build_shuttle_upgrade_price=Math.pow(10,6);build_shuttle_upgrade.text( "⯎" +  numT(build_shuttle_upgrade_price) );
-    shuttle_capacity_upgrade_price=Math.pow(10,9);shuttle_capacity_upgrade.text( "⯎" +  numT(shuttle_capacity_upgrade_price) );
-    repair_shuttle_upgrade_price=Math.pow(10,9);repair_shuttle_upgrade.text( "⯎" +  numT(repair_shuttle_upgrade_price) );
-
-    shuttle_capacity=1000;shuttle_capacity_upgrade_label.text("["+numT(shuttle_capacity)+"]");
-
-    bsu_stage=0;//build shuttle stage (for pb)
-    rsu_stage=0;
-
-    progress3(bsu_stage,pb_build_shuttle,pb_build_shuttle_indicator,'');
-    progress3(rsu_stage,pb_repair_shuttle,pb_repair_shuttle_indicator);
-
-    shuttlebay_lock_block.hide();
-    shuttlebay_block.show();
-
-    mc_unlock_upgrade.html('<img src="img/shuttle.png" width="20">');
-    button1Disable(mc_unlock_upgrade);
-    mc_lock_block.show();
-  }
-  function mcInit(){
-
-    mc_state=1;
-
-    mission_debris_amount=1257861241;
-    mission_debris_launch.show();
-    mission_debris_upgrade_label.text("Debris detected: " + mission_debris_amount);
-    greenToRed(mission_debris_upgrade_label);
-
-    mission_station_status=0;
-    mission_station_launch.show();
-    mission_station_upgrade_label.text("Deployment status: " + mission_station_status + '%');
-    greenToRed(mission_station_upgrade_label);
-
-    mission_station_upgrade_price=Math.pow(10,3);mission_station_upgrade.text( "⯎" +  numT(mission_station_upgrade_price) );
-
-    mission_telescope_status=0;
-    mission_telescope_launch.show();
-    mission_telescope_upgrade_label.text("Deployment status: " + mission_telescope_status + '%');
-    greenToRed(mission_telescope_upgrade_label);
-
-    mission_telescope_upgrade_price=Math.pow(10,9);mission_telescope_upgrade.text( "⯎" +  numT(mission_telescope_upgrade_price) );
-
-    //resetting debris mission details
-    mission_debris_launch_flag=0;//mission not launched yet
-    mission_debris_block_progress.hide();
-    mission_debris_shuttle_name.text('');
-    mission_debris_stage=0;
-    progress3(0,pb_mission_debris,pb_mission_debris_indicator,'');
-
-    //resetting station mission details
-    mission_station_launch_flag=0;//mission not launched yet
-    mission_station_block_progress.hide();
-    mission_station_shuttle_name.text('');
-    mission_station_stage=0;
-    progress3(0,pb_mission_station,pb_mission_station_indicator,'');
-
-    //resetting telescope mission details
-    mission_telescope_launch_flag=0;//mission not launched yet
-    mission_telescope_block_progress.hide();
-    mission_telescope_shuttle_name.text('');
-    mission_telescope_stage=0;
-    progress3(0,pb_mission_telescope,pb_mission_telescope_indicator,'');
-
-    mc_lock_block.hide();
-    mc_block.show();
-
-    station_unlock_upgrade.html('0%');
-    telescope_unlock_upgrade.html('0%');
-    button1Disable(station_unlock_upgrade);
-    station_lock_block.show();
-    telescope_lock_block.show();
-  }
-  function stationInit(){
-    station_state=1;
-
-    if(chief==0){//making chief engineer, along with all the perks
-      chief=1;
-      rank_label.text("[Chief Engineer]");
-
-      //this is set here once, but is done in foundryInit() and magnetronInit() after warp or load
-      foundry_waste_limit-=50;
+    //Molten Core
+    if(quantum_upgrade_flag[0]==1){
+      foundry_temperature=3422;furnace_screen.text(foundry_temperature+" °C");
     }
 
+    radiator_unlock_upgrade_price=Math.pow(10,6);radiator_unlock_upgrade.text("⯎" + numT(radiator_unlock_upgrade_price));
+    button1Disable(radiator_unlock_upgrade);
+    radiator_lock_block.show();
+  }
+  function radiatorInit(){
 
+    radiator_state=1;//radiator is unlocked
 
-    foundry_waste_limit-=50;//reduce the waste limit a little bit
-    if(foundry_waste>=foundry_waste_limit){
-      foundry_waste=foundry_waste_limit;
-      button1Enable(foundry_recycle_upgrade);
+    radiator_min_flag=0;
+    radiator_body.show();
+
+    radiator_active=0;
+    lamps_port.html('<img src="img/lamp_one_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50">');
+    radiator_button_center.text("OFF");
+
+    radiator_one_multiplier=1;
+    radiator_two_multiplier=1;
+    radiator_three_multiplier=1;
+    radiator_four_multiplier=1;
+
+    radiator_playhead=0;
+
+    radiator_boost=2;
+    radiator_boost_label.text('[x'+radiator_boost+']');
+    //animal multipler
+    if((animal8_radiator_boost-1)>0){animal8_radiator_boost_label.text('+'+animal8_radiator_boost);}else{animal8_radiator_boost_label.text('');}
+
+    radiator_lock_block.hide();
+    radiator_block.show();
+
+    pc_unlock_upgrade_price=Math.pow(10,12);pc_unlock_upgrade.text("⯎" + numT(pc_unlock_upgrade_price));
+    button1Disable(pc_unlock_upgrade);
+    pc_lock_block.show();
+
+  }
+  function pcInit(){
+
+    pc_state=1;
+
+    pc_min_flag=0;
+    pc_body.show();
+
+    nPCC();//to upgrade the nextPositronCubesCost on the UI
+
+    pc_seconds_amount=0;
+
+    if(quantum_upgrade_flag[4]==1){pc_emission_boost=10000;}
+    else{pc_emission_boost=1;}
+
+    positrons=0;pc_positrons_label.text('['+numT(all_time_positrons)+'/'+numT(nextPositronCubesCost)+']');
+    pc_positron_cubes_label.html('&#8984;'+numT(all_time_positron_cubes-positron_cubes));
+    pc_emission=100;pc_emission_label.text('[1-'+numT(pc_emission*pc_emission_boost)+']');
+
+    pc_emission_upgrade_price=Math.pow(10,20);pc_emission_upgrade.text( "⯎" +  numT(pc_emission_upgrade_price) );
+
+    pc_lock_block.hide();
+    pc_block.show();
+
+  }
+  function gamblingInit(){
+
+    gambling_state=1;
+
+    gambling_min_flag=0;
+    gambling_body.show();
+    gambling_block.show();
+
+    gambling_collect_flag=1;//default value is 1, meaning "we have already collected, so cannot collect now". magnetronRequest() is the only place that sets it to 0, allowing to collect
+    gambling_collect_upgrade.removeClass('selected11').addClass('button11');
+
+    if(gambling_choice.length>0){
+      let q1=magnetron_probability_game_set[gambling_choice[0]];
+      let q2=magnetron_probability_game_set[gambling_choice[1]];if(!q2){q2='';}
+      let q3=magnetron_probability_game_set[gambling_choice[2]];if(!q3){q3='';}
+
+      gambling_symbol_label.html( '<span class="blue" style="visibility:visible">'+q1+q2+q3+'</span>');
+    }else{
+      gambling_symbol_label.html( '<span class="blue" style="visibility:hidden">⍙</span>');
     }
-    foundry_waste_label.text(foundry_waste+"/"+foundry_waste_limit);
 
-    station_lock_block.hide();
-    station_block.show();
-
-  }
-  function telescopeInit(){
-
-    telescope_state=1;
-
-    telescope_seconds_amount=0;
-    telescope_stars_amount_limit=Math.pow(10,12);//1T
-
-    telescope_stars_amount=0;telescope_stars_amount_label.text('['+numT(telescope_stars_amount)+'/'+numT(telescope_stars_amount_limit)+']');
-    telescope_galaxies_amount=0;telescope_galaxies_amount_label.text('['+numT(telescope_galaxies_amount)+']');
-    telescope_resolution=1000000;telescope_resolution_label.text('[1-'+numT(telescope_resolution)+']');
-
-    telescope_resolution_upgrade_price=Math.pow(10,20);telescope_resolution_upgrade.text( "⯎" +  numT(telescope_resolution_upgrade_price) );
-
-
-
-    telescope_lock_block.hide();
-    telescope_block.show();
+    gambling_boosts_label.text('['+gambling_boosts+']');
+    if(gambling_boosts>0){button2Enable(gambling_boosts_upgrade);}
+    else{button2Disable(gambling_boosts_upgrade);}
 
   }
 
-  //shuttles
-  function drawShuttles(){//displaying shuttles at shuttleport
+  function ccSetup(){
+    if(chief_check==1){
 
-    shuttleport.text('');//emptying the div
+      chief_check_toggle.removeClass('button3gray').addClass('button3blue').text("ON");
 
-    for (let i = 0; i < 5; i++) {
-      if(shuttle_fleet['availability'][i]==1){
-        shuttleport.append('<img src="img/shuttle.png" width="30">\n');
+      buymax_toggle_flag=1;
+      rlab_autobuy_toggle_flag=1;
+      night_shift=1;
+      machines_buymax_toggle_flag=1;
+
+      buymax_toggle.hide();
+      rlab_autobuy_toggle.hide();
+      machines_buymax_toggle.hide();
+      night_shift_toggle.attr("class", "engden_on").text("ON");
+
+      restartGenerators();
+
+    }else{
+
+      chief_check_toggle.removeClass('button3blue').addClass('button3gray').text("OFF");
+
+      buymax_toggle.html('[<span class="purple">auto</span>]');
+      rlab_autobuy_toggle.html('[<span class="purple">auto</span>]');
+      machines_buymax_toggle.html('[1/<span class="purple">max</span>]');
+      night_shift_toggle.attr("class", "engden_on").text("ON");
+
+      buymax_toggle.show();
+      rlab_autobuy_toggle.show();
+      machines_buymax_toggle.show();
+
+    }
+
+    //this setting isn't set here, only reflected. It's set to 1 by default when you load the game and then can be changed by the player through the chief_cc panel
+    if(chief_warp_check==0){chief_warp_check_toggle.removeClass('button3blue').addClass('button3gray').text("OFF");}
+    else{chief_warp_check_toggle.removeClass('button3gray').addClass('button3blue').text("ON");}
+  }
+  function ccSwitch(){
+
+    if(chief_check==0){chief_check=1;}else{chief_check=0;}
+
+    ccSetup();
+
+  }
+  function ccPrestige(){//automatic prestige
+
+    var ac_owned;
+
+    chief_check=0;//to properly stop all the generators
+
+    prestigeOk();
+
+    ac_owned=antimatter_cubes-antimatter_cubes_spent;
+
+    //first we go through the ranks, then go for magnetron upgrades
+    if(ac_owned-warp_price>=0 && engden_state==0){
+      warp_rank1_upgrade.trigger("click");
+    }
+    if(ac_owned-warp_price>=0 && warp_rank2_training1_flag==0){
+      warp_rank2_training1_upgrade.trigger("click");
+    }
+    if(ac_owned-warp_price>=0 && warp_rank2_training2_flag==0){
+      warp_rank2_training2_upgrade.trigger("click");
+    }
+    if(ac_owned-warp_price>=0 && lscanner_state==0){
+      warp_rank2_upgrade.trigger("click");
+    }
+
+    if(ac_owned-warp_price>=0 && warp_max_magnetron_multiplier<20){
+      warp_magnetron_multiplier_upgrade.trigger("click");
+    }
+    if(ac_owned-warp_price>=0 && warp_max_magnetron_duration<120){
+      warp_magnetron_duration_upgrade.trigger("click");
+    }
+    if(ac_owned-warp_price>=0 && warp_magnetron_alerting==0){
+      warp_magnetron_alerting_upgrade.trigger("click");
+    }
+
+    //then reboot and trigger chief_check_toggle to start generating
+    setTimeout(function () { chief_check=1; rebootOk(); },1500);
+
+  }
+
+  function magnetronRequest(){
+
+    if(Math.floor((Math.random() * (magnetron_probability_max - animal4_magnetron_probability_modifier ) ) + 1)==1){
+
+      magnetron_state=2;//set magnetron state to armed
+
+      magnetron_buttonEnable();
+
+      if(warp_magnetron_alerting==1){
+        PlayAudio(6);
+      }
+
+      let q = Math.floor( ( Math.random() * 6 ) );
+
+      magnetron_choice=q;
+      gambling_collect_flag=0;//can collect
+      gambling_collect_upgrade.removeClass('button11').addClass('selected11');
+
+      if(gambling_state==1){//to prevent cheating: magnetron_choice gets locked in
+        SaveGame();
+        save_sec=120;
+        button3Disable(save_upgrade);
+      }
+
+      magnetron_probability_game_label.text(''+magnetron_probability_game_set[q]+' '+magnetron_probability_game_set[q]+' '+magnetron_probability_game_set[q]+' '+magnetron_probability_game_set[q]+'');
+
+      if(chief_check==1){magnetron_button.trigger("click");}
+
+    }else{
+      magnetron_probability_game_label.text(choose(magnetron_probability_game_set)+' '+choose(magnetron_probability_game_set)+' '+choose(magnetron_probability_game_set)+' '+choose(magnetron_probability_game_set));
+    }
+
+  }
+  function couplingsWear(){
+
+    if(Math.floor( ( Math.random() * auxiliary_probability_max ) + 1)==5){
+
+      var avalue;
+      var aeu_combined=aux_eff_unit+animal5_auxiliary_effectiveness_modifier;
+      var ae_max=50+50+animal5_auxiliary_effectiveness_modifier*2;
+
+      if(Math.floor((Math.random() * 2) + 1)==1){
+        avalue=parseInt(auxiliary_lever1.val())-1;
+        if(avalue<-50){avalue=-50;}
+        auxiliary_lever1.val(avalue);
+        auxiliary_effectiveness1=aeu_combined-Math.abs( Math.floor(avalue/10) * (aeu_combined/5) );
       }else{
-        shuttleport.append('<img src="img/shuttle.png" width="30" style="visibility:hidden">\n');
-      }
-    }
-
-  }
-  function shuttlesBuiltCheck(){//how many shuttles have been built
-
-    var count=0;
-
-    for (let i = 0; i < 5; i++) {
-
-      if(shuttle_fleet['availability'][i]>0){
-        count++;
+        avalue=parseInt(auxiliary_lever2.val())+1;
+        if(avalue>50){avalue=50;}
+        auxiliary_lever2.val(avalue);
+        auxiliary_effectiveness2=aeu_combined-Math.abs( Math.ceil(auxiliary_lever2.val()/10) * (aeu_combined/5) );
       }
 
-    }
-
-    return count;
-
-  }
-  function shuttlesCheck(){//how many shuttles are actually available
-
-    var count=0;
-
-    for (let i = 0; i < 5; i++) {
-
-      if(shuttle_fleet['availability'][i]==1){
-        count++;
-      }
-
-    }
-
-    return count;
-
-  }
-  function takeShuttle(mission_code){//take available shuttle
-
-    for (let i = 0; i < 5; i++) {
-
-      //take the first available shuttle
-      if(shuttle_fleet['availability'][i]==1){
-        shuttle_fleet['availability'][i]=mission_code;
-        drawShuttles();//refresh shuttleport
-        return;
-      }
-
-    }
-  }
-  function returnShuttle(mission_code){//return shuttle from mission
-
-    for (let i = 0; i < 5; i++) {
-
-      //take the first available shuttle
-      if(shuttle_fleet['availability'][i]==mission_code){
-        shuttle_fleet['availability'][i]=1;
-        drawShuttles();//refresh shuttleport
-      }
-
-    }
-  }
-  function obtainShuttleName(mission_code){
-    return shuttle_fleet['name'][ shuttle_fleet['availability'].indexOf(mission_code) ];
-  }
-
-  function missionDebris(){
-
-    mission_debris_stage+=25;
-
-    if(mission_debris_stage==100){
-
-      //PlayAudio(8);
-
-      mission_debris_stage=0;
-      mission_debris_amount-=shuttle_capacity;
-
-      if(mission_debris_amount<=0){
-        mission_debris_amount=0;
-        mission_debris_block_progress.hide();
-        mission_debris_upgrade_label.text("Mission complete");
-                returnShuttle(101);
-        mission_debris_launch_flag=2;//mission complete (this is used as a flag for moneyCalc() )
-
+      auxiliary_effectiveness=1+(auxiliary_effectiveness1+auxiliary_effectiveness2)*0.01;
+      if(animal5_auxiliary_effectiveness_modifier>0){
+        auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%/"+ae_max+"%]");
       }else{
-        mission_debris_upgrade_label.text("Debris detected: " + mission_debris_amount);
+        auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
       }
+
+      GeneratorRatios();
 
     }
 
-    progress3(mission_debris_stage,pb_mission_debris,pb_mission_debris_indicator,'');
+  }
 
+  function radiatorSwitch(){
+    if(radiator_active==1){
+
+      switch(radiator_playhead){
+        case 0:
+          lamps_port.html('<img src="img/lamp_one.png" width="50"><img src="img/lamp.png" width="50"><img src="img/lamp.png" width="50"><img src="img/lamp.png" width="50">');
+          radiator_one_multiplier=radiator_boost+animal8_radiator_boost;
+          radiator_two_multiplier=1;
+          radiator_three_multiplier=1;
+          radiator_four_multiplier=1;
+
+          one_ratios_flag=1;//to trigger GeneratorRatios()
+        break;
+        case 1:
+          lamps_port.html('<img src="img/lamp.png" width="50"><img src="img/lamp_two.png" width="50"><img src="img/lamp.png" width="50"><img src="img/lamp.png" width="50">');
+          radiator_one_multiplier=1;
+          radiator_two_multiplier=radiator_boost+animal8_radiator_boost;
+          radiator_three_multiplier=1;
+          radiator_four_multiplier=1;
+
+          two_ratios_flag=1;
+        break;
+        case 2:
+          lamps_port.html('<img src="img/lamp.png" width="50"><img src="img/lamp.png" width="50"><img src="img/lamp_three.png" width="50"><img src="img/lamp.png" width="50">');
+          radiator_one_multiplier=1;
+          radiator_two_multiplier=1;
+          radiator_three_multiplier=radiator_boost+animal8_radiator_boost;
+          radiator_four_multiplier=1;
+
+          three_ratios_flag=1;
+        break;
+        case 3:
+          lamps_port.html('<img src="img/lamp.png" width="50"><img src="img/lamp.png" width="50"><img src="img/lamp.png" width="50"><img src="img/lamp_four.png" width="50">');
+          radiator_one_multiplier=1;
+          radiator_two_multiplier=1;
+          radiator_three_multiplier=1;
+          radiator_four_multiplier=radiator_boost+animal8_radiator_boost;
+
+          four_ratios_flag=1;
+        break;
+      }
+
+    }else{
+
+      radiator_one_multiplier=1;
+      radiator_two_multiplier=1;
+      radiator_three_multiplier=1;
+      radiator_four_multiplier=1;
+      //make sure that whatever generators are active, the ratios are recalculated
+      one_ratios_flag=1;
+      two_ratios_flag=1;
+      three_ratios_flag=1;
+      four_ratios_flag=1;
+
+
+      switch(radiator_playhead){
+        case 0:
+          lamps_port.html('<img src="img/lamp_one_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50">');
+        break;
+        case 1:
+          lamps_port.html('<img src="img/lamp_off.png" width="50"><img src="img/lamp_two_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50">');
+        break;
+        case 2:
+          lamps_port.html('<img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_three_off.png" width="50"><img src="img/lamp_off.png" width="50">');
+        break;
+        case 3:
+          lamps_port.html('<img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_off.png" width="50"><img src="img/lamp_four_off.png" width="50">');
+        break;
+      }
+    }
   }
 
   //research lab
@@ -4620,13 +5988,15 @@
     var research_probability;
 
     research_playhead++;
+    //to skip over supply upgrades which end at 21
+    if(research_playhead>499){research_playhead=22;}
     //console.log(research_playhead);
 
     //handling probabilities of different item types
 
     research_probability=0.6;
 
-    if(Math.random()<research_probability){//most are power increases
+    if(researchRNG.random[research_playhead]<research_probability){//most are power increases
       researchList.type[7]=1;
     }else{//the rest are lifeforms
 
@@ -4642,7 +6012,7 @@
     }
 
 
-    //quick and dirty solution for the 0.99.1 stable version to provide an adequate amount of supply upgrades
+    //supply upgrades are hardcoded into specific positions
 
     if(research_playhead==8 || research_playhead==10 || research_playhead==13 || research_playhead==16 || research_playhead==18 || research_playhead==21){
       researchList.type[7]=2;
@@ -4652,7 +6022,7 @@
 
     if(researchList.type[7]==1){
 
-      researchList.effect[7]=getRandomInt(1,3);//1-3% of power increase
+      researchList.effect[7]=researchRNG.power[research_playhead];//1-3% of power increase
 
       researchList.price[7]=rlab_lastprice*2;
 
@@ -4660,11 +6030,11 @@
       researchList.effect[7]=2;//doubling of the smallest supply
       researchList.price[7]=rlab_lastprice*2;
     }else if(researchList.type[7]==3){
-      researchList.effect[7]=getRandomInt(0,7);//type of lifeform
+      researchList.effect[7]=researchRNG.lifeform[research_playhead];//type of lifeform
       researchList.price[7]=rlab_lastprice*2;
     }
     else if(researchList.type[7]==4){
-      researchList.effect[7]=2;//doubling power generation for 15 sec
+      researchList.effect[7]=2;//doubling power generation for 15 sec; currently not used
       researchList.price[7]=rlab_lastprice*2;
     }
 
@@ -4698,17 +6068,39 @@
     else{bonusDisable(bonusboxblock_8);}
 
   }
+  function buildRNG(seed){
+
+    //this function generates rlab items for the warp session. Every Init() call will generate a random seed that will then be saved and used to build the whole thing. This is done to ensure that players have no incentive to game the research lab, since in the past rlab items were generated on the fly and in some cases it made sense to see what comes up and if you don't like it, reload.
+    //the object itself, researchRNG{}, is used in researchRequest() to display research lab upgrade items. It contains 500 items. Even getting to generation X is unlikely to reach 500 and research_playhead will normally hover at around 450 at that point. Still, just in case, research_playhead wraps around when it reaches 500 and goes back to the beginning (to step 22, to be exact, to skip over the hardcoded supply upgrades)
+    //researchRNG.random is a pre-generated set of random numbers that is used to determine the type of upgrade
+    //researchRNG.lifeform contains
+    //Potentially, the object could've been much smaller, since in researchRequest() I use the same research_playhead for everything. Potentially, I could've generated the exact number of lifeforms required, for example, and used a separate playhead variable. However, I reasoned that an array of 500 elements is peanuts and it's better to keep the system slightly less efficient, but much more simple.
+
+    mT = new MersenneTwister(seed);
+    researchRNG={
+      random:[],
+      lifeform:[],
+      power:[]
+    };
+
+    for (let i = 0; i < 500; i++) {
+      researchRNG.random[i]=mT.random();
+      researchRNG.lifeform[i]=getRandomIntMT(0,7);
+      researchRNG.power[i]=getRandomIntMT(1,3);
+    }
+
+  }
 
   //lifeforms scanner
   function buildLifeformsCollection(){
 
-    //this is built so that all the variables (except for animal8_magicnumber_flag) do not need to be saved, and depend entirely on the amount of lifeforms you have collected. And each time you collect a new one, this function not only redraws the Lifeforms Scanner, but also recalculates all the animal multipliers
+    //this is built so that all the variables do not need to be saved, and depend entirely on the amount of lifeforms you have collected. And each time you collect a new one, this function not only redraws the Lifeforms Scanner, but also recalculates all the animal multipliers
 
     for (let i = 0; i < 8; i++) {
 
       if(lifeforms_collection[i]>0){
         $("#animal"+(i+1)).css("visibility", "visible");
-        $("#animal_quantity_"+(i+1)).text("Quantity: " + lifeforms_collection[i]);
+        $("#animal_quantity_"+(i+1)).text("Quantity: " + numT(lifeforms_collection[i]));
 
       }else{
         $("#animal"+(i+1)).css("visibility", "hidden");
@@ -4742,7 +6134,11 @@
 
         case 3:
           //directly correlated with the number of lifeforms collected, is subtracted from magnetron_probability_max
-          animal4_magnetron_probability_modifier=lifeforms_collection[i];
+          animal4_magnetron_probability_modifier=lifeforms_collection[i]*20;
+          //but limit it to 990, so that the minimum probability of magnetron is 1:10
+          if(animal4_magnetron_probability_modifier>1980){animal4_magnetron_probability_modifier=1990;}
+          //display
+          magnetron_probability_max_label.text("1:"+ (magnetron_probability_max -animal4_magnetron_probability_modifier) );
         break;
 
         case 4:
@@ -4750,6 +6146,24 @@
           //animal5_auxiliary_probability_modifier=lifeforms_collection[i];
           animal5_auxiliary_effectiveness_modifier=lifeforms_collection[i]*2;
 
+          var avalue;
+          var aeu_combined=50+animal5_auxiliary_effectiveness_modifier;
+          var ae_max=50+50+animal5_auxiliary_effectiveness_modifier*2;
+
+          if(warp_challenge2_flag==2 && engden_state==1){//couplings stabilizer
+            //setting auxiliary effectiveness to max
+            auxiliary_effectiveness1=aeu_combined-0;
+            auxiliary_effectiveness2=aeu_combined-0;
+            auxiliary_effectiveness=1+(auxiliary_effectiveness1+auxiliary_effectiveness2)*0.01;
+            auxiliary_lever1.val(0);
+            auxiliary_lever2.val(0);
+          }
+
+          if(animal5_auxiliary_effectiveness_modifier>0){
+            auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%/"+ae_max+"%]");
+          }else{
+            auxiliary_effectiveness_label.text("[+"+(auxiliary_effectiveness1+auxiliary_effectiveness2).toFixed(0)+"%]");
+          }
 
         break;
 
@@ -4768,11 +6182,11 @@
         break;
 
         case 7:
-          if(lifeforms_collection[i]>=100 && animal8_magicnumber_flag==0){
-            animal8_magicnumber_flag=1;
-            magicnumber++;
-            magicnumber_label.text("["+magicnumber+"]");
-          }
+          //every 2 lifeforms collected
+          animal8_radiator_boost=parseInt(lifeforms_collection[i]/2);
+
+          if((animal8_radiator_boost-1)>0){animal8_radiator_boost_label.text('+'+animal8_radiator_boost);}else{animal8_radiator_boost_label.text('');}
+
         break;
 
       }
@@ -4783,8 +6197,6 @@
 
   function autoPowerLimit(){
 
-    //PlayAudio(8);
-
     money-=money_limit_upgrade_price;
     money_limit=Math.floor(money_limit*1.5);
 
@@ -4794,7 +6206,8 @@
 
     money_limit_label.text("["+numT(money_limit)+"]");
 
-    InventoryUpdate();
+    //I removed this call as it seems to look fine without it. In fact, a flash of a filled power tank looks nice
+    //InventoryUpdate();
   }
   function autoChargeLimit(){
 
@@ -4810,6 +6223,103 @@
     charge_limit_label.text("["+numT(charge_limit)+"]");
 
     ChargeUpdate();
+
+  }
+  function autoPowerUpgrade(){
+
+    /*
+    We first try to buy Electric, then Plasmic, then Nuclear, then Gravitational.
+    Apart from whether there's enough money, we also check for whether we have reached the next generation, and then we buy that. Once we buy the new generation, there is a special check in the upgrade_generation event, which ensures that the generator doesn't stop. In this function we make sure to asign the generator some supplies. Usually, by the time you get to the new generation, your supply_base would be 128.
+    */
+
+    var min_supply;
+    if(time_fundamental<1){min_supply=3584;}
+    else min_supply=1280;
+
+    if(money-one_upgrade_supply_limit_price>=0 && one_price<min_supply){
+      audio_override=1;
+      one_upgrade_supply_limit.trigger( "click");
+      audio_override=0;
+      one_supply=one_price;//and immediately re-supplying
+      one_supply_label.text(numT(one_supply));
+    }
+
+    else if(money-two_upgrade_supply_limit_price>=0 && two_price<min_supply){
+      audio_override=1;
+      two_upgrade_supply_limit.trigger( "click");
+      audio_override=0;
+      if(chief_check==1 && two_supply==0){button_two.trigger( "click");}
+      two_supply=two_price;//and immediately re-supplying
+      two_supply_label.text(numT(two_supply));
+    }
+
+    else if(money-three_upgrade_supply_limit_price>=0 && three_price<min_supply){
+      audio_override=1;
+      three_upgrade_supply_limit.trigger( "click");
+      audio_override=0;
+      if(chief_check==1 && three_supply==0){button_three.trigger( "click");}
+      three_supply=three_price;//and immediately re-supplying
+      three_supply_label.text(numT(three_supply));
+    }
+
+    else if(money-four_upgrade_supply_limit_price>=0 && four_price<min_supply){
+      audio_override=1;
+      four_upgrade_supply_limit.trigger( "click");
+      audio_override=0;
+      if(chief_check==1 && four_supply==0){button_four.trigger( "click");}
+      four_supply=four_price;//and immediately re-supplying
+      four_supply_label.text(numT(four_supply));
+    }
+
+
+    if(money-one_upgrade_effectiveness_price>=0){
+      if(one_upgrade_effectiveness_price + one_upgrade_effectiveness_price*egr<one_upgrade_generation_price){
+        one_upgrade_effectiveness.trigger( "click" );
+      }else{
+        audio_override=1;
+        if(one_generation<generation_limit){one_upgrade_generation.trigger("click");}
+        audio_override=0;
+        one_supply=supply_base;//this is done to make sure that the new generator does not stop after the upgrade to the new generation
+      }
+    }
+
+    else if(money-two_upgrade_effectiveness_price>=0){
+      if(two_upgrade_effectiveness_price + two_upgrade_effectiveness_price*egr<two_upgrade_generation_price){
+        two_upgrade_effectiveness.trigger( "click" );
+      }else{
+        audio_override=1;
+        if(two_generation<generation_limit){two_upgrade_generation.trigger("click");}
+        audio_override=0;
+        two_supply=supply_base;
+      }
+
+    }
+
+    else if(money-three_upgrade_effectiveness_price>=0){
+      if(three_upgrade_effectiveness_price + three_upgrade_effectiveness_price*egr<three_upgrade_generation_price){
+        three_upgrade_effectiveness.trigger( "click" );
+      }else{
+        audio_override=1;
+        if(three_generation<generation_limit){three_upgrade_generation.trigger("click");}
+        audio_override=0;
+        three_supply=supply_base;
+      }
+
+    }
+
+
+
+    else if(money-four_upgrade_effectiveness_price>=0){
+      if(four_upgrade_effectiveness_price + four_upgrade_effectiveness_price*egr<four_upgrade_generation_price){
+        four_upgrade_effectiveness.trigger( "click" );
+      }else{
+        audio_override=1;
+        if(four_generation<generation_limit){four_upgrade_generation.trigger("click");}
+        audio_override=0;
+        four_supply=supply_base;
+      }
+
+    }
 
   }
 
@@ -4835,14 +6345,21 @@
     }
     else if(researchList.type[id]==3){//lifeforms
 
-          if(lscanner_state==1){//if Lifeforms Scanner is unlocked (this check is no longer relevant, as lifeform blocks no longer show before lscanner is unlocked, but I'm leaving it anyway, just in case)
-
             var lifeform_id=researchList.effect[id];
             last_animal=lifeform_id;//saving last animal
 
             lifeforms_collection[lifeform_id]+=1;//adding the lifeform to the collection
 
-          }
+            //zoo keeper adds more lifeforms to the collection
+            if(quantum_upgrade_flag[2]==1){
+
+              if(warp_challenge4_flag==2){
+                lifeforms_collection[lifeform_id]+=4;
+              }else{
+                lifeforms_collection[lifeform_id]+=1;
+              }
+
+            }
 
     }
 
@@ -4863,10 +6380,6 @@
     //therefore, in order to optimize in case of auto-buy, all the UI updates are made once after the calculation of upgrades
 
     //type 1
-    if(rankinfo_window_flag==1){
-        bonus_multiplier_label.text( "+" +  numT( (bonus_multiplier+animal1_bonus_multiplier-1)*100 ) + "%" );
-      }
-
     rlab_panel.text( "+" +  numT( (bonus_multiplier+animal1_bonus_multiplier-1)*100 ) + "%" );
 
     //type 2
@@ -4894,111 +6407,6 @@
 
   }
 
-  function getTankPrice(base_price,rate,cycles){
-
-    var res=base_price * (Math.pow( (1+rate) , cycles) - 1) / ( (1+rate) - 1);
-    return res;
-
-  }
-  function getPowerTankPrice(base_price,next_gen_price,cycles){
-    //we have to use a custom function for power upgrades, because the upgrades are not infinite: you bump against the next generation. So, we have to use loops, but thankfully they are not very long and are about 115-150 each
-
-    temp_money=money;//temporary money purse
-
-    power_prices=[];
-    power_cumulative_prices=[];
-    var res=0;
-    var ii=0;
-
-    while(temp_money-base_price>=0 && cycles>0){
-
-      temp_money-=base_price;
-      res+=base_price;
-
-      base_price=base_price + base_price*egr;
-
-      //check if the next iteration puts the price over the next generation price
-      if(base_price + base_price*egr>next_gen_price){
-        cycles=0;//stop buymax
-      }
-
-      power_prices[ii]=base_price;
-      power_cumulative_prices[ii]=res;
-
-      ii++;
-      cycles--;
-    }
-
-    if(res==0){
-      res=base_price;
-        power_prices[0]=base_price;
-        power_cumulative_prices[0]=res;
-    }
-
-    return res;
-
-  }
-  function calculatePowerPrices(base_price,next_gen_price,cycles){
-
-    //populating arrays with power prices and cumulative prices
-
-    power_prices=[];
-    power_cumulative_prices=[];
-    var res=0;
-    var ii=0;
-
-    while(cycles>0){
-
-      res+=base_price;
-
-      base_price=base_price + base_price*egr;
-
-      //check if the next iteration puts the price over the next generation price
-      if(base_price + base_price*egr>next_gen_price){
-        cycles=0;//stop buymax
-      }
-
-      power_prices[ii]=base_price;
-      power_cumulative_prices[ii]=res;
-
-      ii++;
-      cycles--;
-    }
-
-    if(res==0){
-      res=base_price;
-        power_prices[0]=base_price;
-        power_cumulative_prices[0]=res;
-    }
-
-    //return res;
-
-  }
-  function setStorePrices(supply_price,power_price){
-
-    if(buymax_toggle_flag==0){
-
-      supply_tank_price=supply_price;
-      effectiveness_tank_price=power_price;
-
-    }else{
-
-      for (let i = 0; i < power_prices.length; i++) {
-        if(money-power_cumulative_prices[i]>=0){
-          effectiveness_tank_price=power_cumulative_prices[i];
-        }
-      }
-
-      supply_tank_price=getTankPrice(supply_price,sgr,supply_cycles);
-
-    }
-
-    one_upgrade_effectiveness.text("⌬" + numT(effectiveness_tank_price));
-    one_upgrade_supply_limit.text("⌬" + numT(supply_tank_price));
-
-  }
-
-
   //telescope news functions
   function Telescope(){
 
@@ -5007,11 +6415,11 @@
       //NEWS items
       telescope_list.push(choose([
 
-        '<b>News:</b> '+choose(['Non-organic isopods','Plasma leaks','Poorly written romance novels','Strange noises from the Plasma generator','Low-frequency noises from below the Plasma generator','Suspicious odors from one of the containers of the Plasma generator','Occasional leaks from the Plasma generator','Plasmic frogs','Unseen spiders'])+' were shown to be a direct consequence of '+choose(['irresponsible engineering experiments','random neutrino collisions','quantum mechanics as we understand it','the second law of thermodynamics','media coverage of the issue']),
+        '<b>News:</b> '+choose(['Non-organic isopods','Plasma leaks','Poorly written romance novels','Strange noises from the Plasma generator','Low-frequency noises from below the Plasma generator','Suspicious odors from the Plasma generator','Occasional leaks from the Plasma generator','Plasmic frogs','Unseen spiders','Water drops accumulated on the Plasma generator'])+' were shown to be a direct consequence of '+choose(['irresponsible engineering experiments','random neutrino collisions','quantum mechanics as we understand it','the second law of thermodynamics','media coverage of the issue','vibrations from techno blasted by engineers','UFOs detected in the Engineering Den','strong opinions held by engineers about which type of bolt is better']),
 
-        '<b>News:</b> EU Parliament has just announced that engineers are going to be honored every Wednesday',
+        '<b>News:</b> EU Parliament has just announced that '+choose(['engineers are going to be honored every Wednesday','engineers are going to be receiving geeky t-shirts for Christmas','engineers are going to be granted free bus tickets','a law to outlaw laws is being discussed. Philosophers argue whether that would outlaw the law that outlaws laws as well','engineers are going to receive tax relief in the form of screwdrivers and cables','any engineer can run for office regardless of their hygiene habits','engineers are going to receive tax relief in the form of free annual cleaning of their caves','engineers cannot be classified as weirdos since "there\'s nothing weird about them"']),
 
-        '<b>News:</b> EU Parliament began '+choose(['a session on','working on'])+' replacing some of the outdated regulation regarding the rights of non-organics',
+        '<b>News:</b> EU Parliament began '+choose(['a session on','working on','deliberations on'])+' replacing some of the outdated regulation regarding the rights of non-organics',
 
         '<b>News:</b> EU Parliament considers setting up '+choose(['a workgroup','an institute','a committee','a research laboratory'])+' dedicated to studying non-organic isopods as a potential food source',
 
@@ -5025,19 +6433,13 @@
 
         '<b>News:</b> Mech ciliate trader '+choose(['jailed for fraud','makes a fortune','looses a flask with a billion worth of ciliates','accidentally gets infected with mech ciliates. Transforms into an android','sells socks to buy more ciliates','buys pizza with ciliates','sells ciliates as NFTs']),
 
-        '<b>News:</b> A study finds no health risks of frequent warping',
+        '<b>News:</b> A study '+choose(['finds that','reveals that','suggests that'])+' '+choose(['most people consider engineers to be true artists','frequent warping is beneficial to one\'s sex life','people who warp frequently experience warping more frequently','non-organic organisms have now been spotted in all major cities across the world','the clicking of generators spurs one\'s creative juices','the clicking of generators induces structured thinking','if left unattended, machinery goes out of order','engineers might require specially designed sustenance','malnourished engineers perform better if offered free drinks','engineers perform better if allowed to rant','engineers tend to come up with weirder contraptions if exposed to 90s sitcoms']),
 
-        '<b>News:</b> A study reveals that most people consider engineers to be true artists',
+        '<b>News:</b> A study finds '+choose(['no health risks of frequent warping','no health risks of infrequent warping','no health risks of occasional warping']),
 
-        '<b>News:</b> A study reveals that frequent warping is beneficial to one\'s sex life',
+        '<b>Local News:</b> A referendum voices support for more research into '+choose(['large worms','duotronic butterflies','non-organic isopods','unkempt engineers','engineer caves'])+' that have been spotted throughout the city',
 
-        '<b>News:</b> A study reveals that people who warp frequently experience warping more frequently',
-
-        '<b>News:</b> A study reveals that non-organic organisms have been spotted in major cities across the world',
-
-        '<b>Local News:</b> A referendum voices support for more research into '+choose(['large worms','duotronic butterflies','non-organic isopods','unkempt engineers'])+' that have been spotted throughout the city',
-
-        '<b>Local News:</b> '+ choose(['a bakery','a local confectionery','some corner cafes','local shops']) + ' ' +choose(['started selling non-organic donuts','began accepting mech ciliates as currency'])
+        '<b>Local News:</b> '+ choose(['a bakery','a confectionery','some corner cafes','town shops','bars']) + ' ' +choose(['started selling non-organic donuts','began accepting mech ciliates as currency','opened its doors to non-organics'])
 
       ])
     );
@@ -5045,41 +6447,39 @@
       //Internal announcements
       telescope_list.push(choose([
 
-        '<b>Announcement:</b> section '+getRandomInt(2,13)+' is closed for maintenance',
+        '<b>Announcement:</b> section '+getRandomInt(2,999)+' '+choose(['is closed for maintenance','has been reopened after maintenance','has been given a different number. Announcements to follow','is now partially consumed by an expanding portal to another dimension. Containment fields are currently being erected','will be used for a local hacker convention','will be rented out to local filmmakers','is now open, but beware']),
 
-        '<b>Announcement:</b> section '+getRandomInt(2,13)+' has been reopened after maintenance',
+        '<b>Announcement:</b> '+choose(['a pipe burst','an unclear event occured','a wild engineer was sighted','a puff of smoke was observed','a small explosion happened','a volcano erupted','debate between engineers occurred'])+' in section '+getRandomInt(2,999)+', '+choose(['please put on your radiation suit when passing through','please keep out until the investigation is concluded','please keep calm or go panic in another section'])+'. Thank you',
 
-        '<b>Announcement:</b> a pipe burst in section '+getRandomInt(2,13)+', please put on your radiation shielding suit when passing through. Thank you',
+        '<b>Announcement:</b> '+choose(['a crowding of cable lizards has created significant clutter in the Engineering Den. Please clear it out. Thank you.','a can of worms was left open near the Nuclear generator. "It\'s a whole can of worms", says an unnamed chief engineer']),
 
-        '<b>Announcement:</b> an unclear event occured in section '+getRandomInt(2,13)+', please keep out until the investigation is concluded. Thank you',
+        '<b>Announcement:</b> a floor administrator witnessed ' + choose(['the mating','skin shedding','the mating ritual','the birth','the hatching']) + ' of '+choose(['unseen spiders','mutated worms','cable lizards','non-organic isopods'])+'. Counseling sessions have been set up',
 
-        '<b>Announcement:</b> a wild engineer was sighted in section '+getRandomInt(2,13)+'. Please don\'t leave food lying around. Thank you',
+        '<b>Announcement:</b> an intern '+choose(['considers applying for a permanent position','decides to adopt a non-organic creature','agrees to doing night shifts'])+'. Changes mind after visiting the Engineering Den.',
 
-        '<b>Announcement:</b> a crowding of cable lizards has created significant clutter in the Eingineering Den. Please clear it out. Thank you.',
+        '<b>Announcement:</b> an unnamed chief engineer '+choose(['claims to have drank more coffee than anyone else in the history of mankind','suggests that UFOs seen hovering over generators are mutated plastic flies','says it\'s all the government\'s fault','insists he knows more than everyone else in the world','asserts that he had personally designed and assembled all non-organic lifeforms','asserts that he had personally designed and assembled all the generators','says that he has invented the wheel, went back in time and introduced it to humanity','declares himself to be the ultimate expert on everything','claims her pants have more pockets than any other pants in the world'])+'. The statement was later retracted.',
 
-        '<b>Announcement:</b> a can of worms was left open near the Nuclear generator. "It\'s a whole can of worms", says an unnamed Chief Engineer',
+        '<b>Announcement:</b> a floor administrator is '+choose(['allegedely swallowed and then spit out by the Pek Monster','temporarily kidnapped by an organized group of nanobots','attacked by a couple of plasmic frogs','infused with non-organic DNA and grows a metal arm','seen hunting down a duplicitous cable lizard','transformed into an android and then back to a human by an organized group of nanobots','broken down into molecules and then pieced back together by an organized group of nanobots. Philosophers argue if this is now a different person','engulfed and then spit out by an expanding portal to another dimension','seen commanding a tribe of nanobots','infused with non-organic DNA and grows a duotronic leg','considered for promotion, but then gets captured by a UFO','allegedely eaten by unseen spiders, but no one has seen it']),
 
-        '<b>Announcement:</b> a floor administrator witnessed' + choose(['the mating','skin shedding','the mating ritual','the birth','the hatching']) + ' of '+choose(['unseen spiders','mutated worms','cable lizards','non-organic isopods'])+'. Counseling sessions have been set up',
+        '<b>Announcement:</b> floor administrators have set up guard posts ' + choose(['to catch UFOs that hover over generators','to ward off '+choose(['cable lizards','nut beetles','non-organic isopods','plastic flies','plasmic frogs','mutated worms']),'to protect '+ choose(['themselves','the Engineering Den','the Foundry','the canteen','the Battery','the Magnetron','the Radiator']) + ' from ' + choose(['nut beetle hoards','mutated worms invasions','cable lizard packs','the Pek Monster','plastic fly clouds','non-organic isopod gatherings','violent nanobot tribes','other floor administrators']) ]),
 
-        '<b>Announcement:</b> a floor administrator is '+choose(['allegedely swallowed and then spit out by the Pek Monster','temporarily kidnapped by an organized group of nanobots','attacked by a couple of plasmic frogs','infused with non-organic DNA and grows a metal arm','seen hunting down a duplicitous cable lizard','transformed into an android and then back to a human by an organized group of nanobots']),
+        '<b>Announcement:</b> to offset working conditions, some floor administrators have been offered additional ' + choose(['benefits','leave','pay','food','beer','coffee','coffee and marshmellows','counseling sessions','incremental game sessions','milk','chocolate cookies','grilled nanobots','trips to the local zoo to see some organics']),
 
-        '<b>Announcement:</b> floor administrators have set up guard posts ' + choose(['to catch UFOs that hover over generators','to ward off '+choose(['cable lizards','nut beetles','non-organic isopods','plastic flies','plasmic frogs','mutated worms']),'to protect '+ choose(['themselves','the Engineering Den','the Foundry','the canteen','the Battery','the Magnetron','the Shuttlebay','Mission Control']) + ' from ' + choose(['nut beetle hoards','mutated worms invasions','cable lizard packs','the Pek Monster','plastic fly clouds','non-organic isopod gatherings']) ]),
+        '<b>Announcement:</b> '+choose(['breakfast with doughnuts','lunch','tea','happy hour','acid pool party','astronomy lecture'])+' is happening',
 
-        '<b>Announcement:</b> to offset working conditions, some floor administrators have been offered additional ' + choose(['benefits','leave','pay','food','beer','coffee','coffee and marshmellows','counseling sessions','incremental game sessions']),
+        '<b>Announcement:</b> tracks of '+choose(['unseen spiders','mutated worms','cable lizards'])+' were spotted on the wall of '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator','the Radiator']),
 
-        '<b>Announcement:</b> '+choose(['breakfast','lunch','tea','happy hour','acid pool party','astronomy lecture'])+' is happening',
+        choose(['A bunch of','A gathering of','A group of'])+' '+choose(['isopods','unidentified organisms','civilians','visitors','workers from the last shift','lawyers','unkempt engineers with empty coffee mugs'])+' '+choose(['was spotted','was reported','was seen','was sighted'])+' hiding under '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator','the Battery','the Magnetron','the Radiator'])+'. Security has been informed about the incident.',
 
-        '<b>Announcement:</b> tracks of '+choose(['unseen spiders','mutated worms','cable lizards'])+' were spotted on the wall of '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator']),
-
-        choose(['A bunch of','A gathering of','A group of'])+' '+choose(['isopods','unidentified organisms','civilians','visitors','workers from the last shift','lawyers','unkempt engineers with empty coffee mugs'])+' '+choose(['was spotted','was reported','was seen','was sighted'])+' hiding under '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator','the Battery','the Magnetron'])+'. Security has been informed about the incident.',
-
-        choose(['Traces of non-organic isopods','Severed legs of a non-organic organism','Non-organic eggs of unknown insect species'])+'  were discovered on one of the pipes of '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator'])+'. Scientists '+choose(['are preparing to publish a paper on the subject','are recommending a non-organic insecticide solution','ponder if there is any risk to the engineers in the area']),
+        choose(['Traces of non-organic isopods','Severed legs of a non-organic organism','Non-organic eggs of unknown insect species'])+' were discovered on one of the pipes of '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator'])+'. Scientists '+choose(['are preparing to publish a paper on the subject','are recommending a non-organic insecticide solution','ponder if there is any risk to the engineers in the area','are building a 3D model of the non-organic creature']),
 
         choose(['A bunch of','A gathering of','A group of'])+' '+choose(['isopods','unidentified organisms','civilians','visitors','workers from the last shift','lawyers','unkempt engineers with empty coffee mugs'])+' '+choose(['was spotted','was reported','was seen','was sighted'])+' hiding under '+choose(['the Electric generator','the Plasma generator','the Nuclear generator','the Gravity generator'])+'. No action is required',
 
-        'Several '+choose(['interns','visitors','managers'])+' got lost in the Engineering Den last week',
+        'Several '+choose(['interns','visitors','managers'])+' got lost in the Engineering Den last week. Search considered hopeless at this point',
 
-        'Please report any unidentified persons with unkempt appearances unless you suspect they are engineers'
+        'Please report any unidentified persons with unkempt appearances unless you suspect they are engineers',
+
+        '<b>Announcement:</b> some folks walked into an expanding portal to another dimension. '+choose(['Found themselves in a world where everyone is '+choose(['a bubble','a pear-shaped elephant','a voucher of some sort','an essay written by a beginning writer','a badly designed law','a treacherous sofa']), 'Found themselves in the middle of last Tuesday','Came back as honest politicians'])
 
       ])
     );
@@ -5087,17 +6487,19 @@
       //Internal Bulletin of Random Things
       telescope_list.push(choose([
 
-        '<b>Internal Bulletin:</b> A UFO was spotted hovering over one of the generators. ' + choose(['It was shot down by floor administrators','It was eaten by an unknown organism','It was later identified to be a plastic fly','It was later identified and became IFO','It was promptly snatched by an unidentified organism']),
+        '<b>Internal Bulletin:</b> A UFO was spotted hovering over one of the generators. ' + choose(['It was shot down by floor administrators','It was eaten by an unknown organism','It was later identified to be a plastic fly','It was later identified and became an IFO','It was promptly snatched by an unidentified organism','It\'s still there now','It looked like a flying saucer, but on closer inspection bore more resemblance to a chicken','It was captured by floor administrators, but was then let go for unclear reasons','It was shot down by floor administrators and sold to an unnamed chief engineer']),
 
-        '<b>Internal Bulletin:</b> An unidentified crawling object (UCO) was spotted in '+choose(['the Engineering Den','the Foundry','Shuttlebay','Mission Control']),
+        '<b>Internal Bulletin:</b> An unidentified crawling object (UCO) was spotted '+choose(['in the Engineering Den','in the Foundry','on the Radiator','under the Battery','on the Particle Collector']),
 
         '<b>Internal Bulletin:</b> An unidentified crawling object (UCO) was spotted devouring what appeared to have been '+choose(['a chair','a basketball','a piece of metal','another UCO','an unidentified devoured object (UDO)']),
 
-        '<b>Internal Bulletin:</b> Several items disappeared from the Research Lab. ' +choose(['Interns blame each other','Nut beetles are suspected','The perpetrator is unknown','Security was informed','No donuts were taken','One of them was later found half devoured','Unseen spiders were not seen near the facility']),
+        '<b>Internal Bulletin:</b> Several items disappeared from the Research Lab. ' +choose(['Interns blame each other','Nut beetles are suspected','The perpetrator is unknown','Security was informed','No donuts were taken','One of them was later found half devoured','Unseen spiders were not seen near the facility','An unnamed chief engineer claims he was sold one of the items by a floor administrator']),
 
-        '<b>Internal Bulletin:</b> ' + choose(['Screwdriver throwing contest will be held in the Engineering Den at 1800','A non-organic isopod race will be held at the canteen right after lunch','A non-organics flea market will be held Saturday afternoon, as usual. Iridium fleas are still banned.','An unofficial non-organics collectors\' convention is going to be held next month','A debate on the topic "Are plasmic frogs actually an organic lifeform?" has been canceled','A debate on the topic "Are plasmic frogs actually an organic lifeform?" is scheduled for tomorrow']),
+        '<b>Internal Bulletin:</b> ' + choose(['Screwdriver throwing contest will be held in the Engineering Den at 1800','A non-organic isopod race will be held in the canteen right after lunch','A non-organics flea market will be held Saturday afternoon, as usual. Iridium fleas are still banned.','An unofficial non-organics collectors\' convention is going to be held next month','A debate on the topic "Are plasmic frogs actually an organic lifeform?" has been canceled','A debate on the topic "Are plasmic frogs actually an organic lifeform?" is scheduled for tomorrow','A friendly discussion on the aesthetic qualities of duotronic butterflies will be held tomorrow']),
 
-        '<b>Internal Bulletin:</b> ' + choose(['a nut beetle','a duotronic butterfly','a flask of mech ciliates','a non-organic isopod']) + ' ' + choose(['infused with gold','painted in rainbow colors','decorated with edible elements','submerged in amber']) + ' was ' + choose(['sold for an undisclosed sum of money','traded for a cup of coffee','sold at a black market','sold for a record sum of money','confiscated by authorities'])
+        '<b>Internal Bulletin:</b> ' + choose(['a nut beetle','a duotronic butterfly','a flask of mech ciliates','a non-organic isopod']) + ' ' + choose(['infused with gold','painted in rainbow colors','decorated with edible elements','submerged in amber']) + ' was ' + choose(['sold for an undisclosed sum of money','traded for a cup of coffee','sold at a black market','sold for a record sum of money','confiscated by authorities']),
+
+        '<b>Internal Bulletin:</b> ' + choose(['a lack of spare cables is explained by an increase in cable lizard population',''])
 
       ])
     );
@@ -5116,7 +6518,7 @@
       //wild rumours and stupidity
       telescope_list.push(choose([
 
-        choose(['A scientist','Someone online','A conspiracy theorist','A person on the Internet','A fellow engineer','Talk show host','An amateur philosopher','A prominent writer','A local comedian']) + ' ' + choose(['claims that','concludes that','maintains that','insists that','believes that','wonders if','suggests that','alleges that']) + ' ' + choose(['non-organic isopods are an evolved lifeform','non-organic isopods are secretly organic','non-organic isopods have evolved from some archaic computer technology','plastic flies cannot be killed with a plastic flyswatter','plastic flies are good for economy','plastic flies can be used for a variety of purposes in the home','nut beetles are programmed to search for a mating bolt','Pek Monster is an amalgamation of all the known non-organic lifeforms','plasmic frogs could be an addition to a healthy post-apocalyptic diet','mutated worms are partially non-organic','non-organic life is more normal than organic becase "they don\'t poop"','the low-frequency hum of the Plasma generator is a conspiracy','the low-frequency hum of the Plasma generator is a sign of emerging intelligence','unseen spiders actually exist','unseen spiders meet the definition of a veridical paradox','unseen spiders is a hoax perpetrated by overworked operators','they have seen an unseen spider','non-organic life should be considered property theft: "They incorporate our stuff into their bodies and then run away"','duotronic butterflies are actually monotronic','cable lizards could be assembled into one really long cable','antimatter is actually liquified muffins'])
+        choose(['A scientist','Someone online','A conspiracy theorist','A person on the Internet','A fellow engineer','Talk show host','An amateur philosopher','A prominent writer','A local comedian','A homeless guy','Your neighbor','A resident mechanic']) + ' ' + choose(['claims that','concludes that','maintains that','insists that','believes that','wonders if','suggests that','alleges that','considers if']) + ' ' + choose(['non-organic isopods are an evolved lifeform','non-organic isopods are secretly organic','non-organic isopods have evolved from some archaic computer technology','plastic flies cannot be killed with a plastic flyswatter','plastic flies are good for the economy','plastic flies can be used for a variety of purposes in the home','nut beetles are programmed to search for a mating bolt','Pek Monster is an amalgamation of all the known non-organic lifeforms','plasmic frogs could be an addition to a healthy post-apocalyptic diet','mutated worms are partially non-organic','non-organic life is more normal than organic becase "they don\'t poop"','the low-frequency hum of the Plasma generator is a conspiracy','the low-frequency hum of the Plasma generator is a sign of emerging intelligence','unseen spiders actually exist','unseen spiders meet the definition of a veridical paradox','unseen spiders is a hoax perpetrated by overworked operators','they have seen an unseen spider','non-organic life should be considered property theft: "They incorporate our stuff into their bodies and then run away"','duotronic butterflies are actually monotronic','cable lizards could be assembled into one really long cable','antimatter is actually liquified muffins','chief engineers should be kept away from machinery because "they know too much"','an army of floor administrators would easily defeat an ancient Roman army','floor administrators have developed special weaponry to deal with unruly non-organics'])
 
       ])
     );
@@ -5130,9 +6532,17 @@
 
         '<b>Hint:</b> allow the clicking of the generators to guide your daily meditation',
 
-        '<b>Hint:</b> don\'t worry too much about the Repopulation parameter. It might stay at 0% for a long time, but will then grow very quickly',
+        '<b>Keyboard shortcuts:</b> use <b>r</b> to start/restart generators',
 
-        '<b>Hint:</b> Machinery is less likely to slow down when out of focus on some browsers if you leave the sound on. You can make it really quiet'
+        '<b>Keyboard shortcuts:</b> use <b>u</b> to toggle auto-buy',
+
+        '<b>Hint:</b> be sure to consult the Handbook. You can find the link on the footer',
+
+        '<b>Hint:</b> auto-buy is excellent for upgrading in the beginning, but you might want to upgrade specific generators manually from time to time',
+
+        '<b>Hint:</b> Machinery is less likely to slow down when out of focus on some browsers if you leave the sound on. You can make it really quiet',
+
+        '<b>Hint:</b> when the Antimatter Amplifier becomes x100 or larger, the initial Power limit is set to a higher value, dependent on all-time energy mined.'
 
         ])
       );
@@ -5140,9 +6550,9 @@
       //did you know that
       telescope_list.push(choose([
 
-        '<b>Did you know that</b> ' + choose(['the Research Lab has been working on a non-organic caterpillar, the first artificial lifeform','all existing non-organic lifeforms might have evolved from existing machinery','Factory kitchen is situated right next to the Nuclear generator and relies on it for heating and power','the Engineering Den is not a single floor: anything below it is known as the "jungle", but is only accessible to Floor Administrators','"foundry" is the only word that contains the letters "f", "o", "u, "n", "d", "r" and "y" in exactly that order','chronic sleep deprivation is bad for your health','antimatter storage has a shape of a large egg','the Plasma generator\'s color is yellow','Foundry\'s waste management system is its own chemical plant in a separate building','Chief Engineers have designated living quarters on the Space Station','Mission Control is built entirely out of recycled android brains','there are several hundred operators working in the Power Plant daily','Magnetron\'s initial probability of becoming armed is 1 in 2000','the maximum attainable temperature of the furnace is 3422 °C','the low frequency hum of the Plasma generator has inspired <a class="lv_discord" href="https://louigi.bandcamp.com/album/gas-giant" target="_blank">several ambient drone albums</a>','you can sometimes hear the low frequency hum of the Plasma generator as the occasional "brrrrrrr"','the Research Lab is very secretive about its work and is infamous for its security measures']) + '?',
+        '<b>Did you know that</b> ' + choose(['the Research Lab has been recently working on a non-organic caterpillar, the first artificial lifeform','all existing non-organic lifeforms might have evolved from existing machinery','Factory kitchen is situated right next to the Nuclear generator and relies on it for heating and power','the Engineering Den is not a single floor: anything below it is known as the "jungle", but is only accessible to floor administrators','"foundry" is the only word that contains the letters "f", "o", "u, "n", "d", "r" and "y" in exactly that order','chronic sleep deprivation is bad for your health','antimatter storage has a shape of a large egg','the Plasma generator\'s color is yellow','Foundry\'s waste management system is its own chemical plant in a separate building','chief engineers have designated living quarters on the Space Station','the Radiator is built entirely out of recycled android brains','there are several hundred operators working in the Power Plant daily','Magnetron\'s minimum probability of becoming armed is 1 in 10','the maximum attainable temperature of the furnace is 3422 °C','the low frequency hum of the Plasma generator has inspired <a class="lv_discord" href="https://louigi.bandcamp.com/album/gas-giant" target="_blank">several ambient drone albums</a>','you can sometimes hear the low frequency hum of the Plasma generator as the occasional "brrrrrrr"','the Research Lab is very secretive about its work and is infamous for its security measures']) + '?',
 
-        '<b>Fun fact:</b> ' + choose(['non-organic isopods eat mazut, which is why they have to be kept out of fuel storage compartments','cable lizards are considered to be pests because they live in groups and frequently get entangled, blocking passages in the Engineering Den','duotronic butterflies use tiny magnets to stick to ceilings','plasmic frogs are actually dangerous to humans and can inflict damage by shooting streams of plasma','mutated worms don\'t age and usually die because they become too large','mech ciliates can now be found in every device of both the Power Plant and Factory','plastic flies use pipes and cables to travel between rooms','nut beetles use their appearance to hide between regular nuts, and a number of beetles have actually been incorporated into machinery by mistake','nut beetles that get mistaken for regular nuts are able to unscrew themselves and run away in 30% of cases','duotronic butterflies can change the color of their wings based on their surroundings','researchers are still not sure whether plastic flies require sustenance','plastic flies live 30-50 minutes on average','iridium fleas are illegal to trade and keep as pets','mech ciliates are smaller than antimatter cubes','mech ciliates are capable of feeding on antimatter and a cililate colony could devour an antimatter cube in a matter of hours','there are over 70 registered non-organic lifeforms, but only 12 species have established populations','each mech ciliate has a unique signature, which is why they are being used as currency','mech ciliates are usually kept in flasks','organized nanobot tribes generate memes and share them on the Internet','each mech ciliate has a unique signature, which is facilitating their rise as currency','Pek Monster is the only non-organic lifeform the existence of which hasn\'t been documented','unseen spiders are an actually existing non-organic lifeform','unseen spiders cannot be seen by a human eye, but their tracks can be registered by a clamp meter']),
+        '<b>Fun fact:</b> ' + choose(['non-organic isopods eat mazut, which is why they have to be kept out of fuel storage compartments','cable lizards are considered to be pests because they live in groups and frequently get entangled, blocking passages in the Engineering Den','duotronic butterflies use tiny magnets to stick to ceilings','plasmic frogs are actually dangerous to humans and can inflict damage by shooting streams of plasma','mutated worms don\'t age and usually die because they become too large','mech ciliates can now be found in every device of the Power Plant','plastic flies use pipes and cables to travel between rooms','nut beetles use their appearance to hide between regular nuts, and a number of beetles have actually been incorporated into machinery by mistake','nut beetles that get mistaken for regular nuts are able to unscrew themselves and run away in 30% of cases','duotronic butterflies can change the color of their wings based on their surroundings','researchers are still not sure whether plastic flies require sustenance','plastic flies live 30-50 minutes on average','iridium fleas are illegal to trade and keep as pets','mech ciliates are smaller than antimatter cubes','mech ciliates are capable of feeding on antimatter and a cililate colony could devour an antimatter cube in a matter of hours','there are over 70 registered non-organic lifeforms, but only 16 species have established populations','each mech ciliate has a unique signature, which is why they are being used as currency','mech ciliates are usually kept in flasks','organized nanobot tribes generate memes and share them on the Internet','each mech ciliate has a unique signature, which is facilitating their rise as currency','Pek Monster is the only non-organic lifeform the existence of which hasn\'t been documented','unseen spiders are an actually existing non-organic lifeform','unseen spiders cannot be seen by a human eye, but their tracks can be registered by a clamp meter','cable lizards are used as transportation by other non-organics']),
 
         ])
       );
@@ -5152,7 +6562,11 @@
 
         '"'+choose(['Be the best you can','Never give up','Stand for what\'s right','Eat your soup','Shaving is not a requirement','Don\'t complain','Higher ups don\'t know shit','If you put your mind to it, you can break anything','It\'s all in your head','Focus on the process, bring me results'])+'" - chief engineer',
 
-        '"'+choose(['UFOs? Never seen one','I haven\'t seen anything','I don\'t know what you\'re talking about','I heard nothing','Nothing ever happens during my shift','I just work here','Pek Monster is an urban legend for sure'])+'" - floor administrator',
+        '"'+choose(['UFOs? Never seen one','I haven\'t seen anything','I don\'t know what you\'re talking about','I heard nothing','Nothing ever happens during my shift','I just work here','Pek Monster? I don\'t know what you\'re talking about'])+'" - floor administrator',
+
+        '"'+choose(['That\'s what my chief told me to do','This mess? Approved by my chief','Do I know what I am doing? You bet. Just don\'t bet much!','We are all professionals here, especially the operators','My bad manners? Approved by my chief'])+'" - engineer',
+
+        '"'+choose(['I just focus on the clicking','I just wait for the buttons to activate'])+'" - operator',
 
         '"'+choose(['I know, right?','Do we warp now, man?','Much antimatter?','What does this button do?','Should we flip this switch?','Wow, what do we do now?','Wild, eh?','Lunch?'])+'" - intern',
 
@@ -5166,9 +6580,17 @@
 
         '"'+choose(['Magnetron is your friend','Treat your magnetron well'])+'" - chief engineer',
 
-        '<b>News:</b> Magnetrons have been voted '+ choose(['"tech\'s hope for the future"','"the world\'s coolest devices"','the leading tech that starts with the letter "m", second only to magnets'])
+        '<b>News:</b> Magnetrons have been voted '+ choose(['"tech\'s hope for the future"','"the world\'s coolest devices"','the leading tech that starts with the letter "m", second only to magnets']),
+
+        '<b>News:</b> EU Parliament '+ choose(['is considering','is planning a vote on','is deliberating on'])+' whether '+choose(['magnetrons are gambling devices','magnetrons can be used in casinos as slot machines','magnetron is a type of a slot machine']),
+
+        '<b>News:</b> Scientists '+ choose(['are looking into','suggest','consider']) + ' using magnetrons to ' + choose(['prolong human lifespan','cure cancer and all other illnesses','eliminate COVID','eliminate poverty','fix the last season of Game of Thrones','fix climate change','build a perpetual motion machine','fix the Internet'])
 
         ])
+      );
+
+      //synchrotron
+      if(gambling_state==1) telescope_list.push(choose([magnetron_probability_game_set[0]+' '+magnetron_probability_game_set[0]+' '+magnetron_probability_game_set[0],magnetron_probability_game_set[1]+' '+magnetron_probability_game_set[1]+' '+magnetron_probability_game_set[1],magnetron_probability_game_set[2]+' '+magnetron_probability_game_set[2]+' '+magnetron_probability_game_set[2],magnetron_probability_game_set[3]+' '+magnetron_probability_game_set[3]+' '+magnetron_probability_game_set[3],magnetron_probability_game_set[4]+' '+magnetron_probability_game_set[4]+' '+magnetron_probability_game_set[4],magnetron_probability_game_set[5]+' '+magnetron_probability_game_set[5]+' '+magnetron_probability_game_set[5],magnetron_probability_game_set[2]+' '+magnetron_probability_game_set[4]+' '+magnetron_probability_game_set[5]])
       );
 
       //foundry
@@ -5178,7 +6600,7 @@
 
         '"'+choose(['Keep that furnace burning','The foundry is the heart'])+'" - chief engineer',
 
-        '<b>News:</b> Scientists are '+ choose(['looking into','suggesting','considering']) + ' methods to use foundry furnace to ' + choose(['produce swords for fantasy conventions','provide lighting source for scribes','make Christmas cookies']),
+        '<b>News:</b> Scientists '+ choose(['are looking into','suggest','consider']) + ' using foundry furnace to ' + choose(['produce swords for fantasy conventions','provide lighting source for scribes','make Christmas cookies']),
 
         '<b>News:</b> ' + choose(['"We should introduce the non-organic isopod into the foundry ecosystem"','"Components should be made out of organic matter, like chocolate"','"Unseen spiders are key to misunderstanding the nature of the Universe"']) + ', says researcher',
 
@@ -5187,23 +6609,29 @@
         ])
       );
 
-      //shuttlebay
-      if(shuttlebay_state==1) telescope_list.push(choose([
+      //radiator
+      if(radiator_state==1) telescope_list.push(choose([
 
-        'Engineer\'s log: ' + choose(['a group of scientists','several chief engineers','several engineers']) + ' have ' + choose(['inspected the shuttlebay','ran a diagnostic on the shuttlebay doors','built a 3D model of the shuttlebay']),
+        'Engineer\'s log: ' + choose(['A gathering of','A badly organized crowd of','A connected chain of']) + ' cable lizards ' + choose(['has just barricaded the radiator. Again','attempted to devour the radiator. Again','have connected to the radiator and syphoned off some energy. Again','was ejected from the radiator by the newly installed anti-lizard system','was seen casing the radiator. Again','is suspected ot trying to steal the radiator. Again']),
 
-        'Engineer\'s log: ' + choose(['"Ganges"','"Yangtzee Kiang"','"Mekong"','"Yukon"','"Rio Grande"']) + ' ' + choose(['was chosen as the shuttle of the month','is named the fastest shuttle in the fleet','had its engine replaced as part of maintenance','suffered a loss of power. Investigation is under way.','had its stripes painted '+choose(['red','blue','green','orange','black','purple','pink']),'had its seat design improved: now there\'s a coffee cup holder.','had its panels designed after the panels in Star Trek']),
+        '"'+choose(['Warmth of the radiator is like the warmth of a parent\'s heart','Respect your radiator and it will radiate respect back at you',])+'" - chief engineer',
 
-        '"'+choose(['Which shuttle is your favorite?','Have you flown a shuttle?','Isn\'t the shuttlebay huge?'])+'" - intern',
-
-        '<b>News:</b> Shuttlebay was chosen as a venue for ' + choose(['the Baseball World Cup '+getRandomInt(2051,2063),'a series of rock concerts','the latest installment of the Space Fair']),
-
-        '<b>Announcement:</b> shuttlebay will be closed between '+ choose(['14:00 and 14:05','15:20 and 15:25','16:17 and 16:22','18:00 and 18:05','21:03 and 21:08']) +' for a short baryon sweep'
+        '<b>News:</b> Scientists '+ choose(['are looking into','suggest','consider']) + ' using radiators as ' + choose(['comfort pets','bar stools','false vaping stations','the inlikely science communicators'])
 
         ])
       );
 
+      //particle collector
+      if(pc_state==1) telescope_list.push(choose([
 
+        'Engineer\'s log: ' + choose(['A small group of a trillion','A googol of','A significant amount of']) + ' nanobots ' + choose(['has populated the lower chambers of the particle collector','']),
+
+        '"'+choose(['I\'m not yet allowed to be around the particle collector','They say the particle collector is like a huge skyscraper','I heard all sorts of mysterious non-organics live in the particle collector'])+'" - operator',
+
+        '<b>News:</b> Scientists '+ choose(['are looking into','suggest','consider']) + ' using particle collectors as ' + choose(['tools to trap small objects, such as particles','collectors of particles'])
+
+        ])
+      );
 
 
 
@@ -5228,40 +6656,47 @@
     Telescope();//build news items array
     telescope.html(telescope_list[0]);//immediately show something
 
-    telescope_timer=setInterval(function() {
+    if(!telescope_timer){
+      telescope_timer=setInterval(function() {
 
-      counter++;
+        counter++;
 
-      if(counter>telescope_list.length-1){
-        counter=0;
-        Telescope();//re-build news items
+        if(counter>telescope_list.length-1){
+          counter=0;
+          Telescope();//re-build news items
 
-      }
+        }
 
-      telescope.html(telescope_list[counter]);
+        telescope.html(telescope_list[counter]);
 
-    }, 25000);
+      }, 25000);
+    }
+
   }
 
   function SaveGame(){
     let gameData = {
-      player: [money,money_limit,actions,total_money,all_time_money,actions_limit,version,magicnumber,chief],
-      achievements: [actions_cycle,bonus_multiplier,researchList,research_playhead,overdrive_price,ogr],
-      qnumbers: [charge_throughput_magicnumber_flag,shuttle_capacity_magicnumber_flag,telescope_magicnumber_flag],
-      ui: [audio_mute,audio_mute_one,audio_mute_two,audio_mute_three,audio_mute_four,audio_mute_allgen,audio_volume,0,night_shift,buymax_toggle_flag,rlab_autobuy_toggle_flag,machines_buymax_toggle_flag,scientific_ui],
+      player:[money,money_limit,actions,total_money,all_time_money,actions_limit,version,chief],
+      debug:[debug_mode,qkeycard],
+      achievements:[actions_cycle,bonus_multiplier,researchList,research_playhead,overdrive_price,ogr,researchSeed],
+      ui: [audio_mute,audio_mute_one,audio_mute_two,audio_mute_three,audio_mute_four,audio_mute_allgen,audio_volume,chief_warp_check,night_shift,buymax_toggle_flag,rlab_autobuy_toggle_flag,machines_buymax_toggle_flag,scientific_ui,battery_min_flag,magnetron_min_flag,foundry_min_flag,radiator_min_flag,pc_min_flag,gambling_min_flag],
       upgrade_pbs: [one_upgrade_supply_limit_stage,two_upgrade_supply_limit_stage,three_upgrade_supply_limit_stage,four_upgrade_supply_limit_stage,one_upgrade_effectiveness_stage,two_upgrade_effectiveness_stage,three_upgrade_effectiveness_stage,four_upgrade_effectiveness_stage,one_upgrade_effectiveness_level,two_upgrade_effectiveness_level,three_upgrade_effectiveness_level,four_upgrade_effectiveness_level,supply_base],
       prices: [one_upgrade_supply_limit_price,two_upgrade_supply_limit_price,three_upgrade_supply_limit_price,four_upgrade_supply_limit_price,one_upgrade_effectiveness_price,two_upgrade_effectiveness_price,three_upgrade_effectiveness_price,four_upgrade_effectiveness_price,one_upgrade_generation_price,two_upgrade_generation_price,three_upgrade_generation_price,four_upgrade_generation_price,money_limit_upgrade_price],
       generators: [one_generation,two_generation,three_generation,four_generation,one_price,two_price,three_price,four_price,one_init_multiplier,two_init_multiplier,three_init_multiplier,four_init_multiplier,one_multiplier,two_multiplier,three_multiplier,four_multiplier],
-      machine_states:[battery_state,magnetron_state,foundry_state,shuttlebay_state,mc_state,station_state,lscanner_state,telescope_state],
+      machine_states:[battery_state,magnetron_state,foundry_state,lscanner_state,radiator_state,pc_state],
       battery:[charge,charge_limit,battery_charge_percentage,charge_limit_upgrade_price,battery_charge_percentage_limit,charge_throughput_upgrade_price],
-      magnetron:[device_magnetron_multiplier,magnetron_duration,magnetron_multiplier_upgrade_price,magnetron_duration_upgrade_price],
+      magnetron:[device_magnetron_multiplier,magnetron_duration,magnetron_multiplier_upgrade_price,magnetron_duration_upgrade_price,magnetron_choice],
       engden:[engden_state],
-      lscanner:[lifeforms_collection,animal8_magicnumber_flag,recency],
+      lscanner:[lifeforms_collection,recency],
       foundry:[foundry_components,foundry_components_multiplier,foundry_components_cycle_upgrade_price,fccu_stage,fccu_level,foundry_temperature,foundry_production_flag,foundry_waste],
-      shuttlebay:[shuttle_fleet,bsu_stage,rsu_stage,build_shuttle_upgrade_price,repair_shuttle_upgrade_price,shuttle_capacity_upgrade_price,shuttle_capacity],
-      mc:[mission_debris_launch_flag,mission_debris_amount,mission_debris_stage,mission_station_launch_flag,mission_station_status,mission_station_upgrade_price,mission_station_stage,mission_telescope_launch_flag,mission_telescope_status,mission_telescope_upgrade_price,mission_telescope_stage],
-      telescope:[telescope_stars_amount,telescope_galaxies_amount,telescope_resolution,telescope_resolution_upgrade_price],
-      prestige: [prestige_multiplier,antimatter,all_time_antimatter,antimatter_cubes,antimatter_cubes_spent,warp_magicnumber_upgrade_flag,warp_max_magnetron_duration,warp_max_magnetron_multiplier,warp_magnetron_alerting,warp_panel1_upgrade_flag,warp_panel2_upgrade_flag,warp_panel3_upgrade_flag]
+      radiator:[radiator_active,radiator_playhead],
+      pc:[positrons,pc_emission,pc_emission_upgrade_price],
+      gambling:[gambling_choice,gambling_boosts,gambling_collect_flag],
+      secrets:[secret1_flag,secret2_flag],
+      prestige: [prestige_multiplier,antimatter,all_time_antimatter,antimatter_cubes,antimatter_cubes_spent,warp_panel4_upgrade_flag,warp_max_magnetron_duration,warp_max_magnetron_multiplier,warp_magnetron_alerting,warp_panel1_upgrade_flag,warp_panel2_upgrade_flag,warp_panel3_upgrade_flag,warp_price,warp_rank1_training1_flag,warp_rank2_training1_flag,warp_rank2_training2_flag],
+      prestige2:[all_time_positrons,positron_cubes,positron_cubes_spent,powerplants_amount,time_fundamental,powerplants_multiplier,ppa_upgrade_price],
+      challenges:[warp_challenge1_flag,warp_challenge2_flag,warp_challenge3_flag,warp_challenge4_flag,buff_challenge1_flag,buff_challenge2_flag],
+      quantum_upgrades:[quantum_upgrade_flag]
     };
 
 
@@ -5269,18 +6704,43 @@
     gamesavedump.text(gameData);
     localStorage.setItem(savefile_name, gameData);
   }
-
   function LoadGame(){
     let gameData=localStorage.getItem(savefile_name);
     gamesavedump.text(gameData);
-    gameData = JSON.parse(LZString.decompressFromBase64(gameData));
+
+    if(gameData) {
+      try {
+          gameData = LZString.decompressFromBase64(gameData);
+          if(gameData===null){gameData="invalid save";}
+          gameData = JSON.parse(gameData);
+      } catch(e) {
+          console.log(e);
+          incorrectsave_infobox.show().html("The save is invalid.<br><br>Make sure you copied the save correctly. If you don't have a save you can use, you can reset the game, by wiping the save and starting from scratch (see Settings below)");
+          all.hide();
+          return;
+      }
+    }
+
+    if(version!=gameData.player[6]){
+      incorrectsave_infobox.show().html("A save from a previous version detected. It's not compatible with <span class='red'>Machinery ["+version+"]</span><br><br>Please, wipe save to start from scratch or import a save that matches this game version (see Settings below)");
+      clearInterval(save_timer);button3Disable(save_upgrade);save_timer=null;
+      all.hide();
+      return;
+    }
+
+    debug_mode=parseInt(gameData.debug[0]);
+    if(debug_mode==5){
+      debug_mode_panel.show();
+      qkeycard=parseInt(gameData.debug[1]);
+      if(qkeycard==0){debug_qkeycard_upgrade.removeClass('button3blue').addClass('button3gray');}
+      else{debug_qkeycard_upgrade.removeClass('button3gray').addClass('button3blue');}
+    }
 
     //scientific notation first
     scientific_ui=parseInt(gameData.ui[12]);
     if(!scientific_ui){scientific_ui=0;}
     if(scientific_ui==0){toggle_scientific.attr("class", "button3");}
     else{toggle_scientific.attr("class", "button3blue");}
-
 
     //PLAYER
     money=Number(gameData.player[0]);
@@ -5290,21 +6750,39 @@
     total_money=Number(gameData.player[3]);
     all_time_money=Number(gameData.player[4]);
     actions_limit=Number(gameData.player[5]);
+    //version=gameData.player[6];//version check is at the top; we also don't need to override the version variable from the save
+    chief=parseInt(gameData.player[7]);
 
-    if(version!=gameData.player[6]){
-      incorrectsave_infobox.show().html("A save from a previous version detected. It's not compatible with <span class='red'>Machinery ["+version+"]</span><br><br>Refresh the page to start playing this version from scratch!");
-      clearInterval(save_timer);
-      localStorage.removeItem(savefile_name);
-      all.hide();
-    }
+    all_time_positrons=Number(gameData.prestige2[0]);//prestige2 stuff, required in pcInit()
+    positron_cubes=Number(gameData.prestige2[1]);
+    positron_cubes_spent=Number(gameData.prestige2[2]);
+    powerplants_amount=Number(gameData.prestige2[3]);
+    time_fundamental=parseFloat(gameData.prestige2[4]);
+    powerplants_multiplier=parseInt(gameData.prestige2[5]);
+    ppa_upgrade_price=parseInt(gameData.prestige2[6]);
 
-    magicnumber=parseInt(gameData.player[7]);magicnumber_label.text("["+magicnumber+"]");
-    chief=parseInt(gameData.player[8]);//this variable is required in several machine Init functions
+    //challenges and their related upgrades are called early, since they might influence stuff below
+    warp_challenge1_flag=parseInt(gameData.challenges[0]);
+    warp_challenge2_flag=parseInt(gameData.challenges[1]);
+    warp_challenge3_flag=parseInt(gameData.challenges[2]);
+    warp_challenge4_flag=parseInt(gameData.challenges[3]);
+    buff_challenge1_flag=parseInt(gameData.challenges[4]);
+    buff_challenge2_flag=parseInt(gameData.challenges[5]);
+
+    quantum_upgrade_flag=gameData.quantum_upgrades[0];
+
+    secret1_flag=parseInt(gameData.secrets[0]);
+    secret2_flag=parseInt(gameData.secrets[1]);
+
+
+    //set default engden values here, because buildLifeformsCollection() might change them
+    auxiliary_effectiveness=1;
+    auxiliary_effectiveness1=0;
+    auxiliary_effectiveness2=0;
 
     //this is called early, since many different variables will depend on lifeform multipliers
     lifeforms_collection=gameData.lscanner[0];
-    animal8_magicnumber_flag=gameData.lscanner[1];
-    recency=gameData.lscanner[2];
+    recency=gameData.lscanner[1];
 
       buildLifeformsCollection();
 
@@ -5316,6 +6794,7 @@
       buildResearchList();
     overdrive_price=Number(gameData.achievements[4]);overdrive_label.text("⌬"+numT(total_money)+"/⌬"+numT(overdrive_price));
     ogr=parseFloat(gameData.achievements[5]);
+    researchSeed=parseFloat(gameData.achievements[6]);buildRNG(researchSeed);
 
 
     //GENERATOR PRICES (SUPPLY LIMITS)
@@ -5499,14 +6978,11 @@
           else{sup_four_label.text("x5");}
 
 
-          //the "quantum numbers" section is here because they are part of machines, the data of which is lost after warps due to the condition of if(machine_state==1). This in the past led to a bug, because this data would get lost. This is not a great solution, to be sure. However, this also gave me the idea to perhaps in the future atually allow players to trigger these magic numbers again and again, since frequently that requires time. Whether that's fun or not is a separate topic, though
-          if(gameData.qnumbers){//this might be removed later, when a new incompatible version is released
-            charge_throughput_magicnumber_flag=parseInt(gameData.qnumbers[0]);
-            shuttle_capacity_magicnumber_flag=parseInt(gameData.qnumbers[1]);
-            telescope_magicnumber_flag=parseInt(gameData.qnumbers[2]);
-          }
 
 
+          //these values are read here, because we need them to persist between warps; none of the machines are unlocked after warp, so keeping these values behind machine state conditions will mean that if you reload the page before unlocking any of the machines, the values won't be read and might end up overwritten with default or undefined values
+          gambling_choice=gameData.gambling[0];
+          gambling_boosts=parseInt(gameData.gambling[1]);
 
           //MACHINE STATES
           battery_state=parseInt(gameData.machine_states[0]);
@@ -5543,6 +7019,7 @@
                 if(parseInt(gameData.machine_states[1])==2){
                   magnetron_state=2;
                   magnetron_buttonEnable();
+                  gambling_collect_upgrade.removeClass('button11').addClass('selected11');
                 }
 
                 device_magnetron_multiplier=parseInt(gameData.magnetron[0]);magnetron_multiplier_label.text("[x"+device_magnetron_multiplier+"]");
@@ -5562,6 +7039,37 @@
 
                 magnetron_button.text("x"+(device_magnetron_multiplier+animal3_magnetron_multiplier));
 
+                magnetron_choice=parseInt(gameData.magnetron[4]);
+                if(magnetron_choice!=999){
+                  magnetron_probability_game_label.text(''+magnetron_probability_game_set[magnetron_choice]+' '+magnetron_probability_game_set[magnetron_choice]+' '+magnetron_probability_game_set[magnetron_choice]+' '+magnetron_probability_game_set[magnetron_choice]+'');
+                }
+
+                //this is done here to override the default value that might be given in gamblingInit()
+                //gambling_choice=gameData.gambling[0];//these values are read just outside the machines block
+                //gambling_boosts=parseInt(gameData.gambling[1]);//these values are read just outside the machines block
+                gambling_collect_flag=parseInt(gameData.gambling[2]);
+
+                if(gambling_choice.length>0){
+                  let q1=magnetron_probability_game_set[gambling_choice[0]];
+                  let q2=magnetron_probability_game_set[gambling_choice[1]];if(!q2){q2='';}
+                  let q3=magnetron_probability_game_set[gambling_choice[2]];if(!q3){q3='';}
+
+                  gambling_symbol_label.html( '<span class="blue" style="visibility:visible">'+q1+q2+q3+'</span>');
+                }else{
+                  gambling_symbol_label.html( '<span class="blue" style="visibility:hidden">⍙</span>');
+                }
+
+                gambling_boosts_label.text('['+gambling_boosts+']');
+                if(gambling_boosts>0){button2Enable(gambling_boosts_upgrade);}
+                else{button2Disable(gambling_boosts_upgrade);}
+
+                if(gambling_collect_flag==0){
+                  gambling_collect_upgrade.removeClass('button11').addClass('selected11');
+                }else{
+                  gambling_collect_upgrade.removeClass('selected11').addClass('button11');
+                }
+
+
               }else{//if not, then set up the proper unlock price
                 //I had a line here, but actually the previous machine's Init function will set this price properly
               }
@@ -5573,7 +7081,7 @@
                 foundryInit();
 
                 foundry_components=Number(gameData.foundry[0]);foundry_components_label.text("⯎" + numT(foundry_components));
-                foundry_components_multiplier=Number(gameData.foundry[1]);foundry_components_multiplier_label.text("["+numT(foundry_components_multiplier)+"]");
+                foundry_components_multiplier=Number(gameData.foundry[1]);foundry_components_multiplier_label.text("["+numT(foundry_components_multiplier*foundry_components_multiplier_qm)+"]");
 
                 //animal multipler
                 if((animal6_components_multiplier-1)>0){animal6_components_multiplier_label.text('+'+(Math.round((animal6_components_multiplier-1)*100))+'%');}else{animal6_components_multiplier_label.text('');}
@@ -5598,174 +7106,69 @@
                 furnace_screen.text(foundry_temperature+" °C");
 
                 foundry_waste=Number(gameData.foundry[7]);
-                foundry_waste_label.text("⌬"+numT(foundry_waste)+"/⌬"+numT(foundry_waste_limit));
+                foundry_waste_label.text("⌬"+numT(foundry_waste)+"/⌬"+foundry_waste_limit);
 
                 if(foundry_waste==foundry_waste_limit){
                   button1Enable(foundry_recycle_upgrade);
                 }
 
               }
-          shuttlebay_state=parseInt(gameData.machine_states[3]);
-              if(shuttlebay_state==1){
+          radiator_state=parseInt(gameData.machine_states[4]);
+                if(radiator_state==1){
 
-                shuttlebayInit();
+                  radiatorInit();
 
-                shuttle_fleet=gameData.shuttlebay[0];
+                  radiator_active=parseInt(gameData.radiator[0]);
+                  radiator_playhead=parseInt(gameData.radiator[1]);
 
-                shuttle_capacity_upgrade_price=Number(gameData.shuttlebay[5]);shuttle_capacity_upgrade.text("⯎" + numT(shuttle_capacity_upgrade_price));
-                shuttle_capacity=Number(gameData.shuttlebay[6]);
-                shuttle_capacity_upgrade_label.text("["+numT(shuttle_capacity)+"]");
+                  radiatorSwitch();
 
-                bsu_stage=parseInt(gameData.shuttlebay[1]);
-                build_shuttle_upgrade_price=Number(gameData.shuttlebay[3]);build_shuttle_upgrade.text("⯎" + numT(build_shuttle_upgrade_price));
-
-                rsu_stage=parseInt(gameData.shuttlebay[2]);
-                repair_shuttle_upgrade_price=Number(gameData.shuttlebay[4]);repair_shuttle_upgrade.text("⯎" + numT(repair_shuttle_upgrade_price));
-
-                var label=bsu_stage+'%';
-                if(bsu_stage==0){label='';}
-
-                progress3(bsu_stage,pb_build_shuttle,pb_build_shuttle_indicator,label);
-                progress3(rsu_stage,pb_repair_shuttle,pb_repair_shuttle_indicator);
-
-                drawShuttles();
-
-                var shuttles_num=shuttlesBuiltCheck();
-
-                if(shuttles_num>=5){
-                  build_shuttle_row.hide();
-                }
-
-                foundry_waste_limit-=50*shuttles_num;
-                foundry_waste_label.text("⌬"+numT(foundry_waste)+"/⌬"+numT(foundry_waste_limit));
-                if(foundry_waste==foundry_waste_limit){
-                  button1Enable(foundry_recycle_upgrade);
-                }
-
-              }
-          mc_state=parseInt(gameData.machine_states[4]);
-              if(mc_state==1){
-
-                mcInit();
-
-                mission_debris_amount=parseInt(gameData.mc[1]);
-                mission_debris_stage=parseInt(gameData.mc[2]);
-
-                mission_station_status=parseInt(gameData.mc[4]);
-                mission_station_upgrade_price=Number(gameData.mc[5]);
-                mission_station_stage=parseInt(gameData.mc[6]);
-
-                mission_telescope_status=parseInt(gameData.mc[8]);
-                mission_telescope_upgrade_price=Number(gameData.mc[9]);
-                mission_telescope_stage=parseInt(gameData.mc[10]);
-
-                //we place these here, so that if missions are complete, they can override some of these values
-                mission_debris_upgrade_label.text("Debris detected: " + mission_debris_amount);
-                mission_station_upgrade_label.text("Deployment status: " + mission_station_status + '%');
-                mission_telescope_upgrade_label.text("Deployment status: " + mission_telescope_status + '%');
-                mission_station_upgrade.text( "⯎" +  numT(mission_station_upgrade_price) );
-                mission_telescope_upgrade.text( "⯎" +  numT(mission_telescope_upgrade_price) );
-
-
-                //MISSIONS
-
-                //DEBRIS
-                mission_debris_launch_flag=parseInt(gameData.mc[0]);
-
-                if(mission_debris_launch_flag==1){
-                  mission_debris_launch.hide();
-                  mission_debris_block_progress.show();
-                  redToGreen(mission_debris_upgrade_label);
-
-                  mission_debris_shuttle_name.text('"'+obtainShuttleName(101)+'"');
-                }
-                if(mission_debris_launch_flag==2){//mission complete and at this point mission_debris_launch_flag=2
-                  mission_debris_amount=0;
-                  redToGreen(mission_debris_upgrade_label);
-                  mission_debris_launch.hide();//we also need to make sure to hide the launch button
-                  mission_debris_block_progress.hide();
-                  mission_debris_upgrade_label.text("Mission complete");
-                  mission_debris_launch_flag=2;//mission complete (this is used as a flag for moneyCalc() )
-                }
-
-                //DEPLOY SPACE STATION
-                mission_station_launch_flag=parseInt(gameData.mc[3]);
-
-                if(mission_station_launch_flag==1){
-                  mission_station_launch.hide();
-                  mission_station_block_progress.show();
-                  redToGreen(mission_station_upgrade_label);
-
-                  mission_station_shuttle_name.text('"'+obtainShuttleName(102)+'"');
-                }
-                if(mission_station_launch_flag==2){//mission complete
-                  mission_station_status=100;
-                  mission_station_launch.hide();
-                  mission_station_block_progress.hide();
-                  mission_station_upgrade_label.text("Mission complete");
-                  redToGreen(mission_station_upgrade_label);
-                }
-
-                //DEPLOY ORBITAL TELESCOPE
-                mission_telescope_launch_flag=parseInt(gameData.mc[7]);
-
-                if(mission_telescope_launch_flag==1){
-                  mission_telescope_launch.hide();
-                  mission_telescope_block_progress.show();
-                  redToGreen(mission_telescope_upgrade_label);
-
-                  mission_telescope_shuttle_name.text('"'+obtainShuttleName(103)+'"');
-                }
-                if(mission_telescope_launch_flag==2){//mission complete
-                  mission_telescope_status=100;
-                  mission_telescope_launch.hide();
-                  mission_telescope_block_progress.hide();
-                  mission_telescope_upgrade_label.text("Mission complete");
-                  redToGreen(mission_telescope_upgrade_label);
-                }
-
-                //note: for some reason putting them before handling missions doesn't update the progress bars correctly, I suspect because they are hidden, but not sure, might confirm later
-                progress3(mission_debris_stage,pb_mission_debris,pb_mission_debris_indicator,'');
-                progress3(mission_station_stage,pb_mission_station,pb_mission_station_indicator,'');
-                progress3(mission_telescope_stage,pb_mission_telescope,pb_mission_telescope_indicator,'');
-
-
-
-                station_unlock_upgrade.html(mission_station_status+'%');
-                telescope_unlock_upgrade.html(mission_telescope_status+'%');
-
-              }
-
-              station_state=parseInt(gameData.machine_states[5]);
-                  if(station_state==1){
-                    //we don't do anything else here, because in 0.99 there's nothing else to the station
-                    stationInit();
+                  if(radiator_active==1){
+                    radiator_button_center.text("ON");
+                  }else{
+                    radiator_button_center.text("OFF");
                   }
 
-              telescope_state=parseInt(gameData.machine_states[7]);
-                  if(telescope_state==1){
+                }
+          pc_state=parseInt(gameData.machine_states[5]);
+                if(pc_state==1){
 
-                    telescopeInit();
+                  pcInit();
 
-                    telescope_stars_amount=Number(gameData.telescope[0]);
-                    telescope_stars_amount_label.text('['+numT(telescope_stars_amount)+'/1T]');
+                  positrons=Number(gameData.pc[0]);
+                    pc_positrons_label.text('['+numT(all_time_positrons)+'/'+numT(nextPositronCubesCost)+']');
+                  pc_emission=Number(gameData.pc[1]);
+                    pc_emission_label.text('[1-'+numT(pc_emission*pc_emission_boost)+']');
+                  pc_emission_upgrade_price=Number(gameData.pc[2]);
+                    pc_emission_upgrade.text( "⯎" +  numT(pc_emission_upgrade_price) );
 
-                    telescope_galaxies_amount=Number(gameData.telescope[1]);
-                    telescope_galaxies_amount_label.text('['+numT(telescope_galaxies_amount)+']');
+                }else{nPCC();}//so that if pc is not yet activated, we still update the number of positron blocks in the header
 
-                    telescope_resolution=Number(gameData.telescope[2]);
-                    telescope_resolution_label.text('[1-'+numT(telescope_resolution)+']');
-
-                    telescope_resolution_upgrade_price=Number(gameData.telescope[3]);
-                    telescope_resolution_upgrade.text( "⯎" +  numT(telescope_resolution_upgrade_price) );
-
-                  }
-
+                //done after all machine init functions to override default minimize values
+                battery_min_flag=parseInt(gameData.ui[13]);
+                    if(battery_min_flag==0){battery_body.show();}
+                    else{battery_body.hide();}
+                magnetron_min_flag=parseInt(gameData.ui[14]);
+                    if(magnetron_min_flag==0){magnetron_body.show();}
+                    else{magnetron_body.hide();}
+                gambling_min_flag=parseInt(gameData.ui[18]);
+                    if(gambling_min_flag==0){gambling_body.show();}
+                    else{gambling_body.hide();}
+                foundry_min_flag=parseInt(gameData.ui[15]);
+                    if(foundry_min_flag==0){foundry_body.show();}
+                    else{foundry_body.hide();}
+                radiator_min_flag=parseInt(gameData.ui[16]);
+                    if(radiator_min_flag==0){radiator_body.show();}
+                    else{radiator_body.hide();}
+                pc_min_flag=parseInt(gameData.ui[17]);
+                    if(pc_min_flag==0){pc_body.show();}
+                    else{pc_body.hide();}
 
 
               //upgrades related to rank (engineering den and lifeforms scanner)
               engden_state=parseInt(gameData.engden[0]);
                   if(engden_state==0){
+                    //auxiliary_effectiveness=1;
                     engden_title.hide();
                     engden_block.hide();
                     rank_label.text("[Operator]");
@@ -5774,9 +7177,7 @@
                     engden_block.show();
                     rank_label.text("[Engineer]");
                   }
-                  auxiliary_effectiveness1=0;
-                  auxiliary_effectiveness2=0;
-              lscanner_state=parseInt(gameData.machine_states[6]);
+              lscanner_state=parseInt(gameData.machine_states[3]);
                   if(lscanner_state==0){
                     lscanner_title.hide();
                     lscanner_block.hide();
@@ -5785,9 +7186,6 @@
                     lscanner_block.show();
                     rank_label.text("[Floor Admin]");
                   }
-              if(chief==1){//chief is taken from the save in the beginning of LoadGame(), with the other player variables
-                rank_label.text("[Chief Engineer]");
-              }
 
 
 
@@ -5824,27 +7222,33 @@
     all_time_antimatter=Number(gameData.prestige[2]);
     antimatter_cubes=Number(gameData.prestige[3]);
     antimatter_cubes_spent=Number(gameData.prestige[4]);
-    warp_magicnumber_upgrade_flag=parseInt(gameData.prestige[5]);
+    warp_price=Number(gameData.prestige[12]);
+    warp_rank1_training1_flag=Number(gameData.prestige[13]);
+    warp_rank2_training1_flag=Number(gameData.prestige[14]);
+    warp_rank2_training2_flag=Number(gameData.prestige[15]);
+
     //6,7,8 are magnetron values and are used in the magnetron section above
     warp_panel1_upgrade_flag=parseInt(gameData.prestige[9]);
-      if(warp_panel1_upgrade_flag==1){
+      //if(warp_panel1_upgrade_flag==1){
         sup_one_label.show();
         sup_two_label.show();
         sup_three_label.show();
         sup_four_label.show();
-      }
+      //}
     warp_panel2_upgrade_flag=parseInt(gameData.prestige[10]);
       if(warp_panel2_upgrade_flag==1){
         buymax_toggle.show();
-        machines_buymax_toggle.show();
       }
     warp_panel3_upgrade_flag=parseInt(gameData.prestige[11]);
       if(warp_panel3_upgrade_flag==1){
         rlab_autobuy_toggle.show();
       }
+    warp_panel4_upgrade_flag=parseInt(gameData.prestige[5]);
+      if(warp_panel4_upgrade_flag==1){
+        machines_buymax_toggle.show();
+      }
 
       antimatter_label.text(numT(antimatter));
-
 
 
     //AUDIO
@@ -5900,9 +7304,16 @@
     Howler.volume(audio_volume);
     audio_control_volume.val(audio_volume);
 
-    //gameData.ui[7] available slot
 
-    aa_panel.text("x"+ numT(prestige_multiplier));
+
+    if(powerplants_multiplier>1){
+      aa_panel.html("x" + numT(prestige_multiplier) + '<span style="color:#aaa">x' + numT(powerplants_multiplier) + '</span');
+    }else{
+      aa_panel.text("x" + numT(prestige_multiplier));
+    }
+
+
+
     rlab_panel.text( "+" +  numT( (bonus_multiplier+animal1_bonus_multiplier-1)*100 ) + "%" );
 
     night_shift=parseInt(gameData.ui[8]);
@@ -5916,7 +7327,9 @@
 
     buymax_toggle_flag=parseInt(gameData.ui[9]);
             if(buymax_toggle_flag==1){
-              buymax_toggle.html('[1/<span class="purple">max</span>]');
+              buymax_toggle.html('[<span class="purple">auto</span>]');
+            }else{
+              buymax_toggle.html('[auto]');
             }
 
     rlab_autobuy_toggle_flag=parseInt(gameData.ui[10]);
@@ -5931,7 +7344,17 @@
 
     //multipliers that are always part of moneyCalc set to default values
     magnetron_multiplier=1;
-    auxiliary_effectiveness=1;
+
+    //doing this at the end, so that we override some of the buymax toggles if need be
+    if(chief==1){//chief is taken from the save in the beginning of LoadGame(), with the other player variables
+      chief_check=0;//this needs to be set to 0, otherwise no sound. Player needs to interact with the UI first
+      chief_warp_check=parseInt(gameData.ui[7]);
+      rank_label.text("[Chief Engineer]");
+      chief_cc_block.show();
+      ccSetup();
+    }else{
+      chief_cc_block.hide();
+    }
 
     //updating UI with the established values
     InventoryUpdate();
@@ -5942,34 +7365,44 @@
     //starting the Grand Telescope
     startTelescope();
 
-    //maybe do a popup that the player has to click away, otherwise no audio
+    if(antimatter_cubes==0 && antimatter>100){
+      document.title = "Warpless Machinery ["+version+"]";
+      document.body.style.backgroundImage = 'url("img/wild_oliva_dark.png")';
+    }
+
+
+
+    //if we would want to start the generators as soon as the game is loaded, we would need to do a popup that the player has to click away, otherwise the browser will block audio; but then if there's a popup, why not just let the player restart everything? They just need to hit "r"
     //restartGenerators();
 
     clearInterval(save_timer);
     save_timer_label.text(120);
     button3Disable(save_upgrade);
-    setTimeout('SaveLoop();',1000);
+    SaveLoop();
 
   }
-
   function SaveLoop(){
+
+    //this is one the only two functions that automatically triggers save, the other being magnetronRequest() with Synchrotron enabled (to prevent cheating). No other automatic functions or processes in the game will save the game. The only other way to save is for the player to hit the save_upgrade button.
 
     save_sec=120;
 
-    save_timer=setInterval(function() {
+    if(!save_timer){
+      save_timer=setInterval(function() {
 
-      save_sec--;
-      if(save_sec==0){
-        save_sec=120;
-        SaveGame();
-        button3Disable(save_upgrade);
-      }
+        save_sec--;
+        if(save_sec==0){
+          save_sec=120;
+          SaveGame();
+          button3Disable(save_upgrade);
+        }
 
-      if(save_sec==115){button3Enable(save_upgrade);}
+        if(save_sec==115){button3Enable(save_upgrade);}
 
-      save_timer_label.text(save_sec);
+        save_timer_label.text(save_sec);
 
-    }, 1000);
+      }, 1000);
+    }
 
   }
 
@@ -6004,6 +7437,18 @@
   function button7Disable($element){
     $element.prop('disabled', true).removeClass('button7').addClass('disabled7');
   }
+  function button8Enable($element){
+    $element.prop('disabled', false).removeClass('disabled8').addClass('button8');
+  }
+  function button8Disable($element){
+    $element.prop('disabled', true).removeClass('button8').addClass('disabled8');
+  }
+  function button10Enable($element){
+    $element.prop('disabled', false).removeClass('disabled10').addClass('button10');
+  }
+  function button10Disable($element){
+    $element.prop('disabled', true).removeClass('button10').addClass('disabled10');
+  }
   function magnetron_buttonEnable(){
     magnetron_button.prop('disabled', false).removeClass('magnetron_button_disarmed').addClass('magnetron_button_armed');
   }
@@ -6034,6 +7479,105 @@
     $element.removeClass('red_bold').addClass('silver');
   }
 
+  //this is done due to the behavior of progress bars, which don't seem to be visually updated if the div of the tab is hidden; therefore, I call these functions in color_block. The problem would be especially noticeable when auto-buy is on
+  //the downside of this solution is that it duplicates code from the x_upgrade_effectiveness functions and in theory I could've simply moved all the UI functions here, so that I call these functions as well. The pedantic upside is that I've removed a couple of calls in these ones
+  function pbRefreshOne(){
+    var label;
+
+    //power pb
+
+    if(one_upgrade_effectiveness_level % 2 === 0){sup_one_label.text("x100");}
+    else{sup_one_label.text("x5");}
+
+    if(one_upgrade_effectiveness_stage==96){//multiplier labels
+            if(one_upgrade_effectiveness_level % 2 === 0){label="x100";}
+            else{label="x5";}
+    }
+    else{label="+"+numT(one_init_multiplier);}
+
+    progress3(one_upgrade_effectiveness_stage,pb_one_upgrade_effectiveness,pb_one_effectiveness_indicator,label);
+
+    //supply pb
+
+    if(one_upgrade_supply_limit_stage==80){label="x2";}
+      else{label="+"+supply_base;}
+
+    progress3(one_upgrade_supply_limit_stage,pb_one_upgrade_supply_limit,pb_one_supply_indicator,label);
+
+  }
+  function pbRefreshTwo(){
+    var label;
+
+    //power pb
+
+    if(two_upgrade_effectiveness_level % 2 === 0){sup_two_label.text("x100");}
+    else{sup_two_label.text("x5");}
+
+    if(two_upgrade_effectiveness_stage==96){//multiplier labels
+            if(two_upgrade_effectiveness_level % 2 === 0){label="x100";}
+            else{label="x5";}
+    }
+    else{label="+"+numT(two_init_multiplier);}
+
+    progress3(two_upgrade_effectiveness_stage,pb_two_upgrade_effectiveness,pb_two_effectiveness_indicator,label);
+
+    //supply pb
+
+    if(two_upgrade_supply_limit_stage==80){label="x2";}
+    else{label="+"+supply_base;}
+
+    progress3(two_upgrade_supply_limit_stage,pb_two_upgrade_supply_limit,pb_two_supply_indicator,label);
+
+  }
+  function pbRefreshThree(){
+    var label;
+
+    //power pb
+
+    if(three_upgrade_effectiveness_level % 2 === 0){sup_three_label.text("x100");}
+    else{sup_three_label.text("x5");}
+
+    if(three_upgrade_effectiveness_stage==96){//multiplier labels
+            if(three_upgrade_effectiveness_level % 2 === 0){label="x100";}
+            else{label="x5";}
+    }
+    else{label="+"+numT(three_init_multiplier);}
+
+    progress3(three_upgrade_effectiveness_stage,pb_three_upgrade_effectiveness,pb_three_effectiveness_indicator,label);
+
+    //supply pb
+
+    if(three_upgrade_supply_limit_stage==80){label="x2";}
+    else{label="+"+supply_base;}
+
+    progress3(three_upgrade_supply_limit_stage,pb_three_upgrade_supply_limit,pb_three_supply_indicator,label);
+
+  }
+  function pbRefreshFour(){
+    var label;
+
+    //power pb
+
+    if(four_upgrade_effectiveness_level % 2 === 0){sup_four_label.text("x100");}
+    else{sup_four_label.text("x5");}
+
+    if(four_upgrade_effectiveness_stage==96){//multiplier labels
+            if(four_upgrade_effectiveness_level % 2 === 0){label="x100";}
+            else{label="x5";}
+    }
+    else{label="+"+numT(four_init_multiplier);}
+
+    progress3(four_upgrade_effectiveness_stage,pb_four_upgrade_effectiveness,pb_four_effectiveness_indicator,label);
+
+    //supply pb
+
+    if(four_upgrade_supply_limit_stage==80){label="x2";}
+    else{label="+"+supply_base;}
+
+    progress3(four_upgrade_supply_limit_stage,pb_four_upgrade_supply_limit,pb_four_supply_indicator,label);
+
+  }
+
   function closeWindows(){//closes all the windows
     settings_infobox.hide();settings_window_flag=0;
     reset_infobox.hide();reset_window_flag=0;
@@ -6041,14 +7585,81 @@
     prestige_infobox.hide();prestige_window_flag=0;
     rank_infobox.hide();rankinfo_window_flag=0;
     magicnumber_infobox.hide();magicnumber_window_flag=0;
+    incorrectsave_infobox.hide();
   }
 
   function restartGenerators(){
-    if(one_price>0){one_supply=one_price;clearInterval(one_interval);button_one.attr("class", "button1_genRunning");One();}
-    if(two_price>0){two_supply=two_price;clearInterval(two_interval);button_two.attr("class", "button1_genRunning");Two();}
-    if(three_price>0){three_supply=three_price;clearInterval(three_interval);button_three.attr("class", "button1_genRunning");Three();}
-    if(four_price>0){four_supply=four_price;clearInterval(four_interval);button_four.attr("class", "button1_genRunning");Four();}
+    //setTimeout separates the starts of generators. Random values are added to add variety, so that each time the generators are restarted automatically, you get a slightly different pattern
+    if(one_price>0){
+      one_supply=one_price;clearInterval(one_interval);
+      button_one.attr("class", "button1_genRunning");
+      One();
+    }
+    if(two_price>0){
+      two_supply=two_price;
+      button_two.attr("class", "button1_genRunning");//120 (these are baseline values around which we add variation)
+      //it is important to pair clearInterval with calling the function, since setTimeout is an async function and you don't want to spawn rogue intervals
+      setTimeout( function () { clearInterval(two_interval); Two(); }, Math.floor((Math.random() * 100) +100) );
+      //Two();
+    }
+    if(three_price>0){
+      three_supply=three_price;
+      button_three.attr("class", "button1_genRunning");//240
+      setTimeout(function () { clearInterval(three_interval); Three(); },Math.floor((Math.random() * 100) +220));
+      //Three();
+    }
+    if(four_price>0){
+      four_supply=four_price;
+      button_four.attr("class", "button1_genRunning");//480
+      setTimeout(function () { clearInterval(four_interval); Four(); },Math.floor((Math.random() * 100) +450));
+    }
 
+  }
+  function stopGenerators(){
+
+    //because restartGenerators() uses setTimeout, which is an async function, clearing interval normally might not work, since there are many times in a game where restartGenerators() might be called around the when the player presses [Warp]. If this happens, some of the generators will be restarted by setTimeout after and the player will hear sounds of generators at the prestige screen.
+    //in order to fix that, we remove all the conditions which might cause the game to call restartGenerators while also setting all supply variables to 0, which will clear all unstopped intervals after one cycle.
+
+    autobuy_purse=[0,0,0];//resetting helper array
+
+    //saving values in the helper
+    autobuy_purse[0]=buymax_toggle_flag;
+    autobuy_purse[1]=rlab_autobuy_toggle_flag;
+    autobuy_purse[2]=night_shift;
+
+    //turning off all auto-buy options, ensuring restartGenerators() won't be triggered
+    buymax_toggle_flag=0;
+    rlab_autobuy_toggle_flag=0;
+    night_shift=0;
+
+    //turning off all the intervals
+    one_supply=0;
+    two_supply=0;
+    three_supply=0;
+    four_supply=0;
+    clearInterval(one_interval);
+    clearInterval(two_interval);
+    clearInterval(three_interval);
+    clearInterval(four_interval);
+
+  }
+
+  function countQUF(bag){
+
+    var count=0;
+
+    for (let i = 0; i < 6; i++) {
+
+      if(bag[i]==1){
+        count++;
+      }
+
+    }
+
+    //buff challenge removes the QUF limitation, but also makes sure that it doesn't allow one to start with no QU
+    if(buff_challenge1_flag==2 && count>1){count=1;}
+
+    return count;
   }
 
   function numT(number, decPlaces=2) { //numTransform
@@ -6088,14 +7699,12 @@
   					}
 
           }else{
-            //number = Math.round(number*100)/100;
-            if(number>1000){return Number(number).toExponential(2);}
+            if(number>1000){return Number(number).toExponential(2).replace(/\+/g, "");}
             else{number = Math.round(number*100)/100;}
           }
 
   					return number;
   		}
-
   function romanize(num) {
   	if (!+num)
   		return false;
@@ -6113,13 +7722,17 @@
   function choose(arr) {
     return arr[Math.floor(Math.random()*arr.length)];
   }
-
   function getRandomInt(min, max) {
     min = Math.ceil(min);
     max = Math.floor(max);
     return Math.floor(Math.random() * (max - min + 1) + min); //The maximum and the minimum are inclusive
   }
-
+  function getRandomIntMT(min, max) {
+    //will require mT to be initialized first; currently initialized in buildRNG()
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(mT.random() * (max - min + 1) + min); //The maximum and the minimum are inclusive
+  }
   function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -6133,6 +7746,19 @@
       left: 0,
       behavior: 'smooth'
     });
+  }
+
+  function testFunc(){
+
+    //testFunc() is used when for testing you need to trigger a bunch of things
+
+    warp_challenge1_flag=2;
+    warp_challenge2_flag=2;
+    warp_challenge3_flag=2;
+    warp_challenge4_flag=2;
+
+
+
   }
 
   function progress(percent, $element) {
@@ -6165,27 +7791,16 @@
     var progressBarWidth = percent * pb_battery.width() * 0.01;
     pb_battery_indicator.width(progressBarWidth).html("⑂" + numT(charge));
   }
-  //not being used
-  function progress_foundry(percent) {
-    //var percent= charge / charge_limit * 100;
-    if(percent>100){percent=100;}
-    var progressBarWidth = percent * pb_battery.width() * 0.01;
-    pb_foundry_indicator.width(progressBarWidth);
-  }
 
   function GeneratorRatios(){
     var all = one_recent_money + two_recent_money + three_recent_money + four_recent_money;
+    if(all==0){all=1;}
     var one_ratio = Number(one_recent_money / all * 100).toFixed(1); one_ratio_label.text(one_ratio+"%");
     var two_ratio = Number(two_recent_money / all * 100).toFixed(1); two_ratio_label.text(two_ratio+"%");
     var three_ratio = Number(three_recent_money / all * 100).toFixed(1); three_ratio_label.text(three_ratio+"%");
     var four_ratio = Number(four_recent_money / all * 100).toFixed(1); four_ratio_label.text(four_ratio+"%");
 
-    if(rankinfo_window_flag==1){
-      eepc_label.text("⌬"+numT(all));
-    }
-
-    //eepc_panel.text("⌬"+numT(all));
-    eepc_panel.text("⌬"+numT(all*magnetron_multiplier*auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier)));
+    eepc_panel.text("⌬"+numT(all*magnetron_multiplier*auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier)*am_radiation_multiplier));
 
   }
 
@@ -6202,8 +7817,31 @@
     }
     nextAntimatterCost=AM_BASE_COST * Math.pow((all_time_antimatter+1),3);
 
+    if(antimatter_cubes==0){//antimatter spillover effect
+      am_radiation_multiplier=Math.floor((antimatter)/100);
+      if(am_radiation_multiplier<1){am_radiation_multiplier=1;}
+    }
+
     //updating the progress bar
     progress_antimatter();
+  }
+
+  function nPCC(){//nextPositronCubesCost
+
+    if(all_time_positrons>=nextPositronCubesCost){
+
+      all_time_positron_cubes=Math.floor( Math.cbrt( all_time_positrons/POS_BASE_COST ) );;
+
+      let positron_cubes_this_cycle=all_time_positron_cubes-positron_cubes;//this is the amount of positron cubes earned this cycle
+
+      pc_positron_cubes_label.html('&#8984;'+numT(positron_cubes_this_cycle));
+      magicnumber_label.text('['+numT(positron_cubes_this_cycle)+']');
+
+
+      prevPositronCubesCost=POS_BASE_COST * Math.pow((all_time_positron_cubes),3);
+    }
+    nextPositronCubesCost=POS_BASE_COST * Math.pow((all_time_positron_cubes+1),3);
+
   }
 
   function setupAudio(){
@@ -6248,6 +7886,18 @@
       src: ['snd/tab_click.wav']
     });
 
+    audio_halt = new Howl({
+      src: ['snd/halt.wav']
+    });
+
+    audio_coins = new Howl({
+      src: ['snd/coins.wav']
+    });
+
+    audio_miss = new Howl({
+      src: ['snd/miss.wav']
+    });
+
   }
 
   function PlayAudio(snd){
@@ -6269,6 +7919,9 @@
         case 8: audio_rlab.play(); break;
         case 9: audio_phum.play(); break;
         case 10: audio_tabclick.play(); break;
+        case 11: audio_halt.play(); break;
+        case 12: audio_coins.play(); break;
+        case 13: audio_miss.play(); break;
         }
     }
     }
