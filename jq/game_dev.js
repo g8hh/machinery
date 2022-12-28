@@ -190,6 +190,11 @@
   var power_prices=[];
   var power_cumulative_prices=[];
 
+  //tank prices
+  var tank_toggle_flag=[0,0,0,0];
+  var power_price_check=[0,0,0,0];
+  var tank_price=[0,0,0,0];
+
   //LOOPS
   var one_interval;
   var two_interval;
@@ -817,11 +822,21 @@
   var endgame_back_button;
   var endgame_quantum_wipe_label;
   var power_plants_built_label;
+  var warp_view_warning;
+  var one_tank_toggle;
+  var two_tank_toggle;
+  var three_tank_toggle;
+  var four_tank_toggle;
 
   $(document).ready(function(){
 
     //CACHE
 
+    one_tank_toggle=$("#one_tank_toggle");
+    two_tank_toggle=$("#two_tank_toggle");
+    three_tank_toggle=$("#three_tank_toggle");
+    four_tank_toggle=$("#four_tank_toggle");
+    warp_view_warning=$("#warp_view_warning");
     power_plants_built_label=$("#power_plants_built_label");
     endgame_quantum_wipe_label=$("#endgame_quantum_wipe_label");
     endgame_back_button=$("#endgame_back_button");
@@ -1275,15 +1290,14 @@
     all=$("#all");
 
 
-    document.title = "Machinery ["+version+"]";
-          console.log("Machinery ["+version+"]");
+    document.title = "Machinery ["+version+"2]";
+          console.log("Machinery ["+version+"2]");
           console.log("created by Louigi Verona");
           console.log("https://louigiverona.com/?page=about");
     Howler.volume(audio_volume);//default volume
 
     if(localStorage.getItem(savefile_name)){
       LoadGame();
-      //Init();//test
     }else{
       Init();
       titlecard.show();
@@ -1314,8 +1328,10 @@
 					break;
 					case "w":
             //for testing
-
-            //testFunc();
+            console.log(warp_challenge1_flag);
+            console.log(warp_challenge2_flag);
+            console.log(warp_challenge3_flag);
+            console.log(warp_challenge4_flag);
 
 
 
@@ -1627,6 +1643,11 @@
       titlecard.hide();
     });
 
+    warp_view_warning.click(function(){
+      PlayAudio(10);
+      warp_view_warning.hide();
+    });
+
     reset_upgrade.click(function(){
       PlayAudio(2);
       if(reset_window_flag==0){
@@ -1714,7 +1735,7 @@
 
         rank_upgrade1_descr.html('<span class="sm">Increases the speed of everything by 400%<br><br></span>');
         rank_upgrade2_descr.html('<span class="sm">Boosts Antimatter Amplifier by x5<br><br></span>');
-        rank_upgrade3_descr.html('<span class="sm">Boosts Antimatter Amplifier by x50<br><br></span>');
+        rank_upgrade3_descr.html('<span class="sm">Boosts Antimatter Amplifier by x10<br><br></span>');
 
         challenge_reward2_descr.html('<span class="sm">Keeps couplings aligned<br><br></span>');
 
@@ -2117,7 +2138,7 @@
       closeWindows();
       prestige_infobox.show();
       windowScroll();
-      ac_label.html( '<span class="gray">' + numT( antimatter_cubes-antimatter_cubes_spent ) + ' + </span>' + numT( antimatter ) );
+      ac_label.html( '<span class="gray">' + numT( antimatter_cubes-antimatter_cubes_spent ) + ' + </span>' + numT( antimatter ) + '<span class="gray"> = ' + numT(antimatter_cubes-antimatter_cubes_spent + antimatter) + '</span>' );
 
       if(antimatter_cubes==0){//before first warp
         if(antimatter<2){am_label.html( "x1 <span class='gray'>(minimum x2 for any effect)</span>" );}else{
@@ -2126,7 +2147,7 @@
       }else{
         var am_text;
         if(antimatter==0){am_text='0';}else{am_text='x'+numT(antimatter);}
-        am_label.html( "<span class='gray'>x" + numT(prestige_multiplier) + " + </span>" + am_text );
+        am_label.html( "<span class='gray'>x" + numT(prestige_multiplier) + " + </span>" + am_text + '<span class="gray"> = ' + numT(prestige_multiplier+antimatter) + '</span>' );
       }
 
 
@@ -2194,7 +2215,7 @@
 
         });//on by default
         warp_panel2_upgrade.click(function(){
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2219,7 +2240,7 @@
 
         });
         warp_panel3_upgrade.click(function(){
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2242,7 +2263,7 @@
 
         });
         warp_panel4_upgrade.click(function(){
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2266,7 +2287,7 @@
 
         warp_magnetron_duration_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2286,7 +2307,7 @@
         });
         warp_magnetron_multiplier_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2306,7 +2327,7 @@
         });
         warp_magnetron_alerting_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2327,7 +2348,7 @@
 
         warp_rank1_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2351,7 +2372,7 @@
         });
         warp_rank2_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2373,7 +2394,7 @@
         });
         warp_rank1_training1_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2393,7 +2414,7 @@
         });//not currently used
         warp_rank2_training1_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2413,7 +2434,7 @@
         });
         warp_rank2_training2_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           var ac_owned=antimatter_cubes-antimatter_cubes_spent;
 
@@ -2435,7 +2456,9 @@
         //Primal Grind, Sharpshooter, Positrons, Gen X
         warp_challenge1_upgrade.click(function(){
 
-          if(prestige_flag==0 || warp_challenge1_flag==2){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
+
+
 
           PlayAudio(2);
           warp_challenge1_flag=2;
@@ -2445,7 +2468,7 @@
         });
         warp_challenge2_upgrade.click(function(){
 
-          if(prestige_flag==0 || warp_challenge2_flag==2){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(2);
           warp_challenge2_flag=2;
@@ -2455,7 +2478,7 @@
         });
         warp_challenge3_upgrade.click(function(){
 
-          if(prestige_flag==0 || warp_challenge3_flag==2){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(2);
           warp_challenge3_flag=2;
@@ -2465,7 +2488,7 @@
         });
         warp_challenge4_upgrade.click(function(){
 
-          if(prestige_flag==0 || warp_challenge4_flag==2){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(2);
           warp_challenge4_flag=2;
@@ -2475,7 +2498,7 @@
         });
         buff_challenge1_upgrade.click(function(){
 
-          if(prestige_flag==0 || buff_challenge1_flag==2){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(2);
           buff_challenge1_flag=2;
@@ -2486,7 +2509,7 @@
 
         quantum_wipe_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(8);
 
@@ -2534,7 +2557,7 @@
 
         warp_qm1_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(10);
           warp_qm_confirm.hide();
@@ -2549,7 +2572,7 @@
         });
         warp_qm2_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(10);
           warp_qm_confirm.hide();
@@ -2565,7 +2588,7 @@
         });
         warp_qm3_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(10);
           warp_qm_confirm.hide();
@@ -2581,7 +2604,7 @@
         });
         warp_qm4_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(10);
           warp_qm_confirm.hide();
@@ -2597,7 +2620,7 @@
         });
         warp_qm5_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(10);
           warp_qm_confirm.hide();
@@ -2613,7 +2636,7 @@
         });
         warp_qm6_upgrade.click(function(){
 
-          if(prestige_flag==0){return;}
+          if(prestige_flag==0){warpViewWarning();return;}
 
           PlayAudio(10);
           warp_qm_confirm.hide();
@@ -2647,6 +2670,7 @@
           //LOOPS
           clearInterval(save_timer);button3Disable(save_upgrade);save_timer=null;
           clearInterval(telescope_timer);telescope_timer=null;//stop the telescope
+          if(magnetron_state==3){magnetronShutdown();}
           clearInterval(magnetron_interval);magnetron_interval=null;//stop the magnetron
           clearInterval(furnace_cooling_timer);furnace_cooling_timer=null;//stop the furnace
           stopGenerators();
@@ -2694,7 +2718,7 @@
           ppa_upgrade_price++;
           item3_pp_plus.css('visibility','visible');
 
-          powerplants_multiplier=5;
+          powerplants_multiplier*=5;
           ppaState();
 
         });
@@ -2704,7 +2728,7 @@
           ppa_upgrade_price++;
           item3_pp_plus.css('visibility','visible');
 
-          powerplants_multiplier=50;
+          powerplants_multiplier*=10;
           ppaState();
 
         });
@@ -2734,6 +2758,8 @@
 
     button_one.click(function(){
 
+      if(one_price<=0){button1Disable(button_one);return;}
+
       if(chief_check==0){PlayAudio(1);}
 
       one_supply=one_price;
@@ -2748,6 +2774,8 @@
 
     });
     button_two.click(function(){
+
+      if(two_price<=0){button1Disable(button_two);return;}
 
       if(chief_check==0){PlayAudio(1);}
 
@@ -2768,6 +2796,8 @@
     });
     button_three.click(function(){
 
+      if(three_price<=0){button1Disable(button_three);return;}
+
       if(chief_check==0){PlayAudio(1);}
 
       three_supply=three_price;
@@ -2782,6 +2812,8 @@
 
     });
     button_four.click(function(){
+
+      if(four_price<=0){button1Disable(button_four);return;}
 
       if(chief_check==0){PlayAudio(1);}
 
@@ -2865,6 +2897,58 @@
         rlab_autobuy_toggle.text('[auto]');
       }
     });
+    one_tank_toggle.click(function(){
+      PlayAudio(10);
+      if(tank_toggle_flag[0]==0){
+        one_tank_toggle.html('[1/<span class="blue">full</span>]');
+        setTankPrice(0);
+      }else{
+        tank_toggle_flag[0]=0;
+        one_tank_toggle.html('[<span class="blue">1</span>/full]');
+        one_upgrade_effectiveness.text("⌬" + numT(one_upgrade_effectiveness_price));
+        power_price_check[0]=one_upgrade_effectiveness_price;
+      }
+      storeState();
+    });
+    two_tank_toggle.click(function(){
+      PlayAudio(10);
+      if(tank_toggle_flag[1]==0){
+        two_tank_toggle.html('[1/<span class="blue">full</span>]');
+        setTankPrice(1);
+      }else{
+        tank_toggle_flag[1]=0;
+        two_tank_toggle.html('[<span class="blue">1</span>/full]');
+        two_upgrade_effectiveness.text("⌬" + numT(two_upgrade_effectiveness_price));
+        power_price_check[1]=two_upgrade_effectiveness_price;
+      }
+      storeState();
+    });
+    three_tank_toggle.click(function(){
+      PlayAudio(10);
+      if(tank_toggle_flag[2]==0){
+        three_tank_toggle.html('[1/<span class="blue">full</span>]');
+        setTankPrice(2);
+      }else{
+        tank_toggle_flag[2]=0;
+        three_tank_toggle.html('[<span class="blue">1</span>/full]');
+        three_upgrade_effectiveness.text("⌬" + numT(three_upgrade_effectiveness_price));
+        power_price_check[2]=three_upgrade_effectiveness_price;
+      }
+      storeState();
+    });
+    four_tank_toggle.click(function(){
+      PlayAudio(10);
+      if(tank_toggle_flag[3]==0){
+        four_tank_toggle.html('[1/<span class="blue">full</span>]');
+        setTankPrice(3);
+      }else{
+        tank_toggle_flag[3]=0;
+        four_tank_toggle.html('[<span class="blue">1</span>/full]');
+        four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
+        power_price_check[3]=four_upgrade_effectiveness_price;
+      }
+      storeState();
+    });
 
     //GENERATORS
     one_upgrade_supply_limit.click(function(){
@@ -2910,7 +2994,10 @@
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      if(buymax_toggle_flag==0){
+        PlayAudio(2);cycles=1;
+        if(tank_toggle_flag[0]==1){cycles=effectiveness_cycles;}
+      }
       else{cycles=effectiveness_cycles;}
 
 
@@ -2959,7 +3046,14 @@
       }
       else{label="+"+numT(one_init_multiplier);}
 
-      one_upgrade_effectiveness.text("⌬" + numT(one_upgrade_effectiveness_price));
+      if(tank_toggle_flag[0]==1){
+        setTankPrice(0);
+      }else{
+        one_upgrade_effectiveness.text("⌬" + numT(one_upgrade_effectiveness_price));
+        power_price_check[0]=one_upgrade_effectiveness_price;
+      }
+
+
 
 
       progress3(one_upgrade_effectiveness_stage,pb_one_upgrade_effectiveness,pb_one_effectiveness_indicator,label);
@@ -3007,9 +3101,11 @@
 
       one_multiplier=prestige_multiplier*fixed_multiplier;
 
+
+
       //effectiveness price
       one_upgrade_effectiveness_price= Math.floor(one_upgrade_generation_price);
-      one_upgrade_effectiveness.text("⌬" + numT(one_upgrade_effectiveness_price));
+      //one_upgrade_effectiveness.text("⌬" + numT(one_upgrade_effectiveness_price));
       //supply limit price
       one_upgrade_supply_limit_price= Math.floor(one_upgrade_generation_price);
       one_upgrade_supply_limit.text("⌬" + numT(one_upgrade_supply_limit_price));
@@ -3038,6 +3134,13 @@
       //generator generation price
       one_upgrade_generation_price= one_upgrade_generation_price*Math.pow(10,14);
       one_upgrade_generation.text("⌬" + numT(one_upgrade_generation_price));
+
+      if(tank_toggle_flag[0]==1){
+        setTankPrice(0);
+      }else{
+        one_upgrade_effectiveness.text("⌬" + numT(one_upgrade_effectiveness_price));
+        power_price_check[0]=one_upgrade_effectiveness_price;
+      }
 
       //other updates
       one_generation_label.text("Generation " + romanize(one_generation+1));
@@ -3091,7 +3194,10 @@
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      if(buymax_toggle_flag==0){
+        PlayAudio(2);cycles=1;
+        if(tank_toggle_flag[1]==1){cycles=effectiveness_cycles;}
+      }
       else{cycles=effectiveness_cycles;}
 
       if(money==money_limit){restartGenerators();}
@@ -3137,7 +3243,14 @@
         }
         else{label="+"+numT(two_init_multiplier);}
 
-        two_upgrade_effectiveness.text("⌬" + numT(two_upgrade_effectiveness_price));
+        if(tank_toggle_flag[1]==1){
+          setTankPrice(1);
+        }else{
+          two_upgrade_effectiveness.text("⌬" + numT(two_upgrade_effectiveness_price));
+          power_price_check[1]=two_upgrade_effectiveness_price;
+        }
+
+
 
 
         progress3(two_upgrade_effectiveness_stage,pb_two_upgrade_effectiveness,pb_two_effectiveness_indicator,label);
@@ -3187,7 +3300,7 @@
 
       //effectiveness price
       two_upgrade_effectiveness_price= Math.floor(two_upgrade_generation_price);
-      two_upgrade_effectiveness.text("⌬" + numT(two_upgrade_effectiveness_price));
+      //two_upgrade_effectiveness.text("⌬" + numT(two_upgrade_effectiveness_price));
       //supply limit price
       two_upgrade_supply_limit_price= Math.floor(two_upgrade_generation_price);
       two_upgrade_supply_limit.text("⌬" + numT(two_upgrade_supply_limit_price));
@@ -3216,6 +3329,13 @@
       //generator generation price
       two_upgrade_generation_price= two_upgrade_generation_price*Math.pow(10,14);
       two_upgrade_generation.text("⌬" + numT(two_upgrade_generation_price));
+
+      if(tank_toggle_flag[1]==1){
+        setTankPrice(1);
+      }else{
+        two_upgrade_effectiveness.text("⌬" + numT(two_upgrade_effectiveness_price));
+        power_price_check[1]=two_upgrade_effectiveness_price;
+      }
 
       //other updates
       two_generation_label.text("Generation " + romanize(two_generation+1));
@@ -3269,7 +3389,10 @@
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      if(buymax_toggle_flag==0){
+        PlayAudio(2);cycles=1;
+        if(tank_toggle_flag[2]==1){cycles=effectiveness_cycles;}
+      }
       else{cycles=effectiveness_cycles;}
 
       if(money==money_limit){restartGenerators();}
@@ -3316,7 +3439,12 @@
       }
       else{label="+"+numT(three_init_multiplier);}
 
-      three_upgrade_effectiveness.text("⌬" + numT(three_upgrade_effectiveness_price));
+      if(tank_toggle_flag[2]==1){
+        setTankPrice(2);
+      }else{
+        three_upgrade_effectiveness.text("⌬" + numT(three_upgrade_effectiveness_price));
+        power_price_check[2]=three_upgrade_effectiveness_price;
+      }
 
 
       progress3(three_upgrade_effectiveness_stage,pb_three_upgrade_effectiveness,pb_three_effectiveness_indicator,label);
@@ -3364,7 +3492,7 @@
 
       //effectiveness price
       three_upgrade_effectiveness_price= Math.floor(three_upgrade_generation_price);
-      three_upgrade_effectiveness.text("⌬" + numT(three_upgrade_effectiveness_price));
+      //three_upgrade_effectiveness.text("⌬" + numT(three_upgrade_effectiveness_price));
       //supply limit price
       three_upgrade_supply_limit_price= Math.floor(three_upgrade_generation_price);
       three_upgrade_supply_limit.text("⌬" + numT(three_upgrade_supply_limit_price));
@@ -3393,6 +3521,13 @@
       //generator generation price
       three_upgrade_generation_price= three_upgrade_generation_price*Math.pow(10,14);
       three_upgrade_generation.text("⌬" + numT(three_upgrade_generation_price));
+
+      if(tank_toggle_flag[2]==1){
+        setTankPrice(2);
+      }else{
+        three_upgrade_effectiveness.text("⌬" + numT(three_upgrade_effectiveness_price));
+        power_price_check[2]=three_upgrade_effectiveness_price;
+      }
 
       //other updates
       three_generation_label.text("Generation " + romanize(three_generation+1));
@@ -3445,7 +3580,10 @@
       var label;
       var cycles=0;
 
-      if(buymax_toggle_flag==0){PlayAudio(2);cycles=1;}
+      if(buymax_toggle_flag==0){
+        PlayAudio(2);cycles=1;
+        if(tank_toggle_flag[3]==1){cycles=effectiveness_cycles;}
+      }
       else{cycles=effectiveness_cycles;}
 
       if(money==money_limit){restartGenerators();}
@@ -3494,7 +3632,12 @@
       }
       else{label="+"+numT(four_init_multiplier);}
 
-      four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
+      if(tank_toggle_flag[3]==1){
+        setTankPrice(3);
+      }else{
+        four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
+        power_price_check[3]=four_upgrade_effectiveness_price;
+      }
 
 
       progress3(four_upgrade_effectiveness_stage,pb_four_upgrade_effectiveness,pb_four_effectiveness_indicator,label);
@@ -3542,7 +3685,7 @@
 
       //effectiveness price
       four_upgrade_effectiveness_price= Math.floor(four_upgrade_generation_price);
-      four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
+      //four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
       //supply limit price
       four_upgrade_supply_limit_price= Math.floor(four_upgrade_generation_price);
       four_upgrade_supply_limit.text("⌬" + numT(four_upgrade_supply_limit_price));
@@ -3571,6 +3714,13 @@
       //generator generation price
       four_upgrade_generation_price= four_upgrade_generation_price*Math.pow(10,14);
       four_upgrade_generation.text("⌬" + numT(four_upgrade_generation_price));
+
+      if(tank_toggle_flag[3]==1){
+        setTankPrice(3);
+      }else{
+        four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
+        power_price_check[3]=four_upgrade_effectiveness_price;
+      }
 
       //other updates
       four_generation_label.text("Generation " + romanize(four_generation+1));
@@ -3881,15 +4031,7 @@
           magnetron_button.text(parseInt((magnetron_duration+animal2_magnetron_duration)-num)+" sec");
 
           if(num>=(magnetron_duration+animal2_magnetron_duration)){
-            magnetron_multiplier=1;
-            magnetron_state=1;//back to non-armed state
-            GeneratorRatios();
-            pb_money_indicator.css("background-color","#c149ff");
-            magnetron_button.text("x"+(device_magnetron_multiplier+animal3_magnetron_multiplier));
-            magnetron_buttonDisable();
-              magnetron_choice=999;
-              gambling_collect_flag=1;
-              gambling_collect_upgrade.removeClass('selected11').addClass('button11');
+            magnetronShutdown();
             clearInterval(magnetron_interval);magnetron_interval=null;
           }
 
@@ -4412,6 +4554,32 @@
     four_upgrade_effectiveness_price=three_upgrade_effectiveness_price*500;four_upgrade_effectiveness.text("⌬" + numT(four_upgrade_effectiveness_price));
     four_upgrade_effectiveness.css("visibility", "visible");
 
+    //tank prices
+    if(tank_toggle_flag[0]==1){
+      one_tank_toggle.html('[1/<span class="blue">full</span>]');
+      setTankPrice(0);
+    }else{
+      power_price_check[0]=one_upgrade_effectiveness_price;
+    }
+    if(tank_toggle_flag[1]==1){
+      two_tank_toggle.html('[1/<span class="blue">full</span>]');
+      setTankPrice(1);
+    }else{
+      power_price_check[1]=two_upgrade_effectiveness_price;
+    }
+    if(tank_toggle_flag[2]==1){
+      three_tank_toggle.html('[1/<span class="blue">full</span>]');
+      setTankPrice(2);
+    }else{
+      power_price_check[2]=three_upgrade_effectiveness_price;
+    }
+    if(tank_toggle_flag[3]==1){
+      four_tank_toggle.html('[1/<span class="blue">full</span>]');
+      setTankPrice(3);
+    }else{
+      power_price_check[3]=four_upgrade_effectiveness_price;
+    }
+
     //generator generations (each next is x1000)
     one_upgrade_generation_price=four_upgrade_effectiveness_price*1000;one_upgrade_generation.text("⌬" + numT(one_upgrade_generation_price));
     two_upgrade_generation_price=one_upgrade_generation_price*1000;two_upgrade_generation.text("⌬" + numT(two_upgrade_generation_price));
@@ -4523,6 +4691,10 @@
     battery_charge_percentage=0;//has to be 0 by default, because it is part of the moneyCalc() function all the time;
     magnetron_multiplier=1;//has to be 1 by default, because it is part of the moneyCalc() formula all the time;
     pb_money_indicator.css("background-color","#c149ff");//and setting the money indicator back to its normal color
+    radiator_one_multiplier=1;//resetting the radiator
+    radiator_two_multiplier=1;
+    radiator_three_multiplier=1;
+    radiator_four_multiplier=1;
 
     //OPTIMIZATIONS
     active_tab_flag=1;
@@ -4571,7 +4743,7 @@
     /*
     But this is also a sort of "main game loop", because almost everything happens if the generators are running. But because InventoryUpdate() is a function habitually called from all sorts of places, using moneyCalc() is safer in cases where you really want to make sure the event runs within generator cycles
 
-    All the machine events, for example, are tied to battery charging and are triggered from this function. A lot of generator functions as well.
+    All the machine events, for example, are tied to battery charging and are triggered from this function. A lot of generator functions are called here as well
     */
 
     var all_multipliers = magnetron_multiplier*auxiliary_effectiveness*(bonus_multiplier+animal1_bonus_multiplier)*am_radiation_multiplier;
@@ -4914,11 +5086,13 @@
       if(antimatter_cubes==0 && antimatter>=5){//first time prestige when you've got 5 antimatter
         ccPrestige();
       }
-      else if (antimatter_cubes>0){
-        //use the ultimate ratio once the Lifeforms Scanner is on, so that it is properly repopulated
-        if(lscanner_state==1 && ultimate_ratio>=100){ccPrestige();}
-        //use the quarter of the ultimate ratio before that, since this is a more optimal strategy
-        else if(lscanner_state==0 && ultimate_ratio>=25){ccPrestige();}
+      else if (antimatter_cubes>0 && ultimate_ratio>=100){
+        //update: a change was suggested to have the warps be less frequent even before lifeforms scanner is unlocked; this seems fine to me, so I am changing that. I am commenting out the previous condition, just in case I would want to come back to that
+          //use the ultimate ratio once the Lifeforms Scanner is on, so that it is properly repopulated
+          //if(lscanner_state==1 && ultimate_ratio>=100){ccPrestige();}
+          //use the quarter of the ultimate ratio before that, since this is a more optimal strategy (imho)
+          //else if(lscanner_state==0 && ultimate_ratio>=25){ccPrestige();}
+        ccPrestige();
       }
     }
 
@@ -4933,7 +5107,7 @@
 
     if(active_tab_flag==1){
 
-      if(money-one_upgrade_effectiveness_price>=0){button1Enable(one_upgrade_effectiveness);}
+      if(money-power_price_check[0]>=0){button1Enable(one_upgrade_effectiveness);}
       else{button1Disable(one_upgrade_effectiveness);}
 
       if(money-one_upgrade_supply_limit_price>=0){button1Enable(one_upgrade_supply_limit);}
@@ -4944,7 +5118,7 @@
     }
 
     if(active_tab_flag==2){
-      if(money-two_upgrade_effectiveness_price>=0){button1Enable(two_upgrade_effectiveness);}
+      if(money-power_price_check[1]>=0){button1Enable(two_upgrade_effectiveness);}
       else{button1Disable(two_upgrade_effectiveness);}
 
       if(money-two_upgrade_supply_limit_price>=0){button1Enable(two_upgrade_supply_limit);}
@@ -4955,7 +5129,7 @@
     }
 
     if(active_tab_flag==3){
-      if(money-three_upgrade_effectiveness_price>=0){button1Enable(three_upgrade_effectiveness);}
+      if(money-power_price_check[2]>=0){button1Enable(three_upgrade_effectiveness);}
       else{button1Disable(three_upgrade_effectiveness);}
 
       if(money-three_upgrade_supply_limit_price>=0){button1Enable(three_upgrade_supply_limit);}
@@ -4966,7 +5140,7 @@
     }
 
     if(active_tab_flag==4){
-      if(money-four_upgrade_effectiveness_price>=0){button1Enable(four_upgrade_effectiveness);}
+      if(money-power_price_check[3]>=0){button1Enable(four_upgrade_effectiveness);}
       else{button1Disable(four_upgrade_effectiveness);}
 
       if(money-four_upgrade_supply_limit_price>=0){button1Enable(four_upgrade_supply_limit);}
@@ -5188,13 +5362,13 @@
       warp_rank2_training1_upgrade.show();
     }
     if(warp_rank2_training1_flag==1 || quantum_upgrade_flag[1]==1){
-      warp_rank2_training1_upgrade.text("Done");
+      warp_rank2_training1_upgrade.text("Sold");
       button8Disable(warp_rank2_training1_upgrade);
       warp_rank2_training2_upgrade.show();
       if(quantum_upgrade_flag[1]==1){warp_rank2_training1_upgrade.show();}
     }
     if(warp_rank2_training2_flag==1 || quantum_upgrade_flag[1]==1){
-      warp_rank2_training2_upgrade.text("Done");
+      warp_rank2_training2_upgrade.text("Sold");
       button8Disable(warp_rank2_training2_upgrade);
       warp_rank2_upgrade.show();
     }
@@ -5206,27 +5380,27 @@
     //Handling challenges
     if(warp_challenge1_flag==0){warp_challenge1_upgrade.text("Claim");button2Disable(warp_challenge1_upgrade);}
     else if(warp_challenge1_flag==1){warp_challenge1_upgrade.text("Claim");button2Enable(warp_challenge1_upgrade);}
-    else if(warp_challenge1_flag==2){warp_challenge1_upgrade.text("Obtained");warp_challenge1_upgrade.attr("class","button13");}
+    else if(warp_challenge1_flag==2){warp_challenge1_upgrade.text("Obtained").prop('disabled', true);warp_challenge1_upgrade.attr("class","button13");}
 
     if(warp_challenge2_flag==0){warp_challenge2_upgrade.text("Claim");button2Disable(warp_challenge2_upgrade);}
     else if(warp_challenge2_flag==1){warp_challenge2_upgrade.text("Claim");button2Enable(warp_challenge2_upgrade);}
-    else if(warp_challenge2_flag==2){warp_challenge2_upgrade.text("Obtained");warp_challenge2_upgrade.attr("class","button13");}
+    else if(warp_challenge2_flag==2){warp_challenge2_upgrade.text("Obtained").prop('disabled', true);warp_challenge2_upgrade.attr("class","button13");}
 
     if(warp_challenge3_flag==0){warp_challenge3_upgrade.text("Claim");button2Disable(warp_challenge3_upgrade);}
     else if(warp_challenge3_flag==1){warp_challenge3_upgrade.text("Claim");button2Enable(warp_challenge3_upgrade);}
-    else if(warp_challenge3_flag==2){warp_challenge3_upgrade.text("Obtained");warp_challenge3_upgrade.attr("class","button13");}
+    else if(warp_challenge3_flag==2){warp_challenge3_upgrade.text("Obtained").prop('disabled', true);warp_challenge3_upgrade.attr("class","button13");}
 
     if(warp_challenge4_flag==0){warp_challenge4_upgrade.text("Claim");button2Disable(warp_challenge4_upgrade);}
     else if(warp_challenge4_flag==1){warp_challenge4_upgrade.text("Claim");button2Enable(warp_challenge4_upgrade);}
-    else if(warp_challenge4_flag==2){warp_challenge4_upgrade.text("Obtained");warp_challenge4_upgrade.attr("class","button13");}
+    else if(warp_challenge4_flag==2){warp_challenge4_upgrade.text("Obtained").prop('disabled', true);warp_challenge4_upgrade.attr("class","button13");}
 
     if(buff_challenge1_flag==0 || buff_challenge1_flag==3){buff_challenge1_upgrade.text("Claim");button2Disable(buff_challenge1_upgrade);}
     else if(buff_challenge1_flag==1){buff_challenge1_upgrade.text("Claim");button2Enable(buff_challenge1_upgrade);}
-    else if(buff_challenge1_flag==2){buff_challenge1_upgrade.text("Obtained");buff_challenge1_upgrade.attr("class","button13");}
+    else if(buff_challenge1_flag==2){buff_challenge1_upgrade.text("Obtained").prop('disabled', true);buff_challenge1_upgrade.attr("class","button13");}
 
     if(buff_challenge2_flag==0 || buff_challenge2_flag==3){buff_challenge2_upgrade.text("Claim");button2Disable(buff_challenge2_upgrade);}
     else if(buff_challenge2_flag==1){buff_challenge2_upgrade.text("Claim");button2Enable(buff_challenge2_upgrade);}
-    else if(buff_challenge2_flag==2){buff_challenge2_upgrade.text("Obtained");buff_challenge2_upgrade.attr("class","button13");}
+    else if(buff_challenge2_flag==2){buff_challenge2_upgrade.text("Obtained").prop('disabled', true);buff_challenge2_upgrade.attr("class","button13");}
 
     //setting up quantum upgrades
 
@@ -5275,6 +5449,7 @@
 
     //enable all buttons, so that in situations when a new powerplant is started all the warp upgrade buttons get properly reset (we don't need to reset challenge buttons, since they work beyond any prestige cycles)
     button8Enable(all_button8s);
+    warp_view_warning.hide();
 
     prestigeState();
 
@@ -5359,6 +5534,7 @@
   function ppaInit(){
 
     item3_pp.hide();
+    item3_pp_plus.show();
     item3_pp_plus.css('visibility','hidden');
 
     one_x=0;//reusing this variable to animate power plant strips
@@ -5502,7 +5678,7 @@
     time_fundamental=1;
     powerplants_multiplier=1;
     ppa_upgrade_price=1;
-    chief=0;
+    chief=0;chief_check=0;chief_warp_check=0;
 
     //solar amplifier
     if(quantum_upgrade_flag[3]==1){
@@ -5779,6 +5955,9 @@
 
     chief_check=0;//to properly stop all the generators
 
+    //game is saved, since due to the Chief Engineer being very efficient, frequently warps happen before 120 seconds on the save timer run out. Therefore, long stretches of time might pass when progress is not saved at all. Therefore, with every automatic warp a save is forced
+    SaveGame();
+
     prestigeOk();
 
     ac_owned=antimatter_cubes-antimatter_cubes_spent;
@@ -5844,6 +6023,17 @@
       magnetron_probability_game_label.text(choose(magnetron_probability_game_set)+' '+choose(magnetron_probability_game_set)+' '+choose(magnetron_probability_game_set)+' '+choose(magnetron_probability_game_set));
     }
 
+  }
+  function magnetronShutdown(){
+    magnetron_multiplier=1;
+    magnetron_state=1;//back to non-armed state
+    GeneratorRatios();
+    pb_money_indicator.css("background-color","#c149ff");
+    magnetron_button.text("x"+(device_magnetron_multiplier+animal3_magnetron_multiplier));
+    magnetron_buttonDisable();
+      magnetron_choice=999;
+      gambling_collect_flag=1;
+      gambling_collect_upgrade.removeClass('selected11').addClass('button11');
   }
   function couplingsWear(){
 
@@ -6272,8 +6462,8 @@
     }
 
 
-    if(money-one_upgrade_effectiveness_price>=0){
-      if(one_upgrade_effectiveness_price + one_upgrade_effectiveness_price*egr<one_upgrade_generation_price){
+    if(money-power_price_check[0]>=0){
+      if(power_price_check[0] + power_price_check[0]*egr<one_upgrade_generation_price){
         one_upgrade_effectiveness.trigger( "click" );
       }else{
         audio_override=1;
@@ -6283,8 +6473,8 @@
       }
     }
 
-    else if(money-two_upgrade_effectiveness_price>=0){
-      if(two_upgrade_effectiveness_price + two_upgrade_effectiveness_price*egr<two_upgrade_generation_price){
+    else if(money-power_price_check[1]>=0){
+      if(power_price_check[1] + power_price_check[1]*egr<two_upgrade_generation_price){
         two_upgrade_effectiveness.trigger( "click" );
       }else{
         audio_override=1;
@@ -6295,8 +6485,8 @@
 
     }
 
-    else if(money-three_upgrade_effectiveness_price>=0){
-      if(three_upgrade_effectiveness_price + three_upgrade_effectiveness_price*egr<three_upgrade_generation_price){
+    else if(money-power_price_check[2]>=0){
+      if(power_price_check[2] + power_price_check[2]*egr<three_upgrade_generation_price){
         three_upgrade_effectiveness.trigger( "click" );
       }else{
         audio_override=1;
@@ -6309,8 +6499,8 @@
 
 
 
-    else if(money-four_upgrade_effectiveness_price>=0){
-      if(four_upgrade_effectiveness_price + four_upgrade_effectiveness_price*egr<four_upgrade_generation_price){
+    else if(money-power_price_check[3]>=0){
+      if(power_price_check[3] + power_price_check[3]*egr<four_upgrade_generation_price){
         four_upgrade_effectiveness.trigger( "click" );
       }else{
         audio_override=1;
@@ -6407,6 +6597,64 @@
 
   }
 
+  function getTankPrice(base_price,next_gen_price,power_stage){
+    //this function is used to calculate the price required to buy the whole progress bar (tank), starting with the current position
+
+    var res=0;
+
+    for (let i = 0; i < 25; i++) {
+
+      res+=base_price;
+
+      power_stage+=4;
+      if(power_stage>=100){
+        //console.log("power stage");
+        return res;
+      }
+
+      base_price=base_price + base_price*egr;
+
+      //check if the next iteration puts the price over the next generation price
+      if(base_price + base_price*egr>next_gen_price){
+        //console.log("next gen");
+        return res;
+      }
+
+    }
+
+    if(res==0){
+      res=base_price;
+    }
+
+    return res;
+
+  }
+  function setTankPrice(gen){
+
+    if(gen==0){
+      tank_toggle_flag[0]=1;
+      tank_price[0]=getTankPrice(one_upgrade_effectiveness_price,one_upgrade_generation_price,one_upgrade_effectiveness_stage);
+      one_upgrade_effectiveness.text("⌬" + numT(tank_price[0]));
+      power_price_check[0]=tank_price[0];
+    }else if(gen==1){
+      tank_toggle_flag[1]=1;
+      tank_price[1]=getTankPrice(two_upgrade_effectiveness_price,two_upgrade_generation_price,two_upgrade_effectiveness_stage);
+      two_upgrade_effectiveness.text("⌬" + numT(tank_price[1]));
+      power_price_check[1]=tank_price[1];
+    }else if(gen==2){
+      tank_toggle_flag[2]=1;
+      tank_price[2]=getTankPrice(three_upgrade_effectiveness_price,three_upgrade_generation_price,three_upgrade_effectiveness_stage);
+      three_upgrade_effectiveness.text("⌬" + numT(tank_price[2]));
+      power_price_check[2]=tank_price[2];
+    }else if(gen==3){
+      tank_toggle_flag[3]=1;
+      tank_price[3]=getTankPrice(four_upgrade_effectiveness_price,four_upgrade_generation_price,four_upgrade_effectiveness_stage);
+      four_upgrade_effectiveness.text("⌬" + numT(tank_price[3]));
+      power_price_check[3]=tank_price[3];
+    }
+
+  }
+
   //telescope news functions
   function Telescope(){
 
@@ -6499,7 +6747,7 @@
 
         '<b>Internal Bulletin:</b> ' + choose(['a nut beetle','a duotronic butterfly','a flask of mech ciliates','a non-organic isopod']) + ' ' + choose(['infused with gold','painted in rainbow colors','decorated with edible elements','submerged in amber']) + ' was ' + choose(['sold for an undisclosed sum of money','traded for a cup of coffee','sold at a black market','sold for a record sum of money','confiscated by authorities']),
 
-        '<b>Internal Bulletin:</b> ' + choose(['a lack of spare cables is explained by an increase in cable lizard population',''])
+        '<b>Internal Bulletin:</b> ' + choose(['a lack of spare cables is explained by an increase in cable lizard population'])
 
       ])
     );
@@ -6550,7 +6798,7 @@
       //did you know that
       telescope_list.push(choose([
 
-        '<b>Did you know that</b> ' + choose(['the Research Lab has been recently working on a non-organic caterpillar, the first artificial lifeform','all existing non-organic lifeforms might have evolved from existing machinery','Factory kitchen is situated right next to the Nuclear generator and relies on it for heating and power','the Engineering Den is not a single floor: anything below it is known as the "jungle", but is only accessible to floor administrators','"foundry" is the only word that contains the letters "f", "o", "u, "n", "d", "r" and "y" in exactly that order','chronic sleep deprivation is bad for your health','antimatter storage has a shape of a large egg','the Plasma generator\'s color is yellow','Foundry\'s waste management system is its own chemical plant in a separate building','chief engineers have designated living quarters on the Space Station','the Radiator is built entirely out of recycled android brains','there are several hundred operators working in the Power Plant daily','Magnetron\'s minimum probability of becoming armed is 1 in 10','the maximum attainable temperature of the furnace is 3422 °C','the low frequency hum of the Plasma generator has inspired <a class="lv_discord" href="https://louigi.bandcamp.com/album/gas-giant" target="_blank">several ambient drone albums</a>','you can sometimes hear the low frequency hum of the Plasma generator as the occasional "brrrrrrr"','the Research Lab is very secretive about its work and is infamous for its security measures']) + '?',
+        '<b>Did you know that</b> ' + choose(['the Research Lab has been recently working on a non-organic caterpillar, the first artificial lifeform','all existing non-organic lifeforms might have evolved from existing machinery','Factory kitchen is situated right next to the Nuclear generator and relies on it for heating and power','the Engineering Den is not a single floor: anything below it is known as the "jungle", but is only accessible to floor administrators','"foundry" is the only word that contains the letters "f", "o", "u, "n", "d", "r" and "y" in exactly that order','chronic sleep deprivation is bad for your health','antimatter storage has a shape of a large egg','the Plasma generator\'s color is yellow','Foundry\'s waste management system is its own chemical plant in a separate building','chief engineers have designated living quarters on the Space Station','the Radiator is built entirely out of recycled android brains','there are several hundred operators working in the Power Plant daily','Magnetron\'s maximum probability of becoming armed is 1 in 10','the maximum attainable temperature of the furnace is 3422 °C','the low frequency hum of the Plasma generator has inspired <a class="lv_discord" href="https://louigi.bandcamp.com/album/gas-giant" target="_blank">several ambient drone albums</a>','you can sometimes hear the low frequency hum of the Plasma generator as the occasional "brrrrrrr"','the Research Lab is very secretive about its work and is infamous for its security measures']) + '?',
 
         '<b>Fun fact:</b> ' + choose(['non-organic isopods eat mazut, which is why they have to be kept out of fuel storage compartments','cable lizards are considered to be pests because they live in groups and frequently get entangled, blocking passages in the Engineering Den','duotronic butterflies use tiny magnets to stick to ceilings','plasmic frogs are actually dangerous to humans and can inflict damage by shooting streams of plasma','mutated worms don\'t age and usually die because they become too large','mech ciliates can now be found in every device of the Power Plant','plastic flies use pipes and cables to travel between rooms','nut beetles use their appearance to hide between regular nuts, and a number of beetles have actually been incorporated into machinery by mistake','nut beetles that get mistaken for regular nuts are able to unscrew themselves and run away in 30% of cases','duotronic butterflies can change the color of their wings based on their surroundings','researchers are still not sure whether plastic flies require sustenance','plastic flies live 30-50 minutes on average','iridium fleas are illegal to trade and keep as pets','mech ciliates are smaller than antimatter cubes','mech ciliates are capable of feeding on antimatter and a cililate colony could devour an antimatter cube in a matter of hours','there are over 70 registered non-organic lifeforms, but only 16 species have established populations','each mech ciliate has a unique signature, which is why they are being used as currency','mech ciliates are usually kept in flasks','organized nanobot tribes generate memes and share them on the Internet','each mech ciliate has a unique signature, which is facilitating their rise as currency','Pek Monster is the only non-organic lifeform the existence of which hasn\'t been documented','unseen spiders are an actually existing non-organic lifeform','unseen spiders cannot be seen by a human eye, but their tracks can be registered by a clamp meter','cable lizards are used as transportation by other non-organics']),
 
@@ -6679,7 +6927,7 @@
       player:[money,money_limit,actions,total_money,all_time_money,actions_limit,version,chief],
       debug:[debug_mode,qkeycard],
       achievements:[actions_cycle,bonus_multiplier,researchList,research_playhead,overdrive_price,ogr,researchSeed],
-      ui: [audio_mute,audio_mute_one,audio_mute_two,audio_mute_three,audio_mute_four,audio_mute_allgen,audio_volume,chief_warp_check,night_shift,buymax_toggle_flag,rlab_autobuy_toggle_flag,machines_buymax_toggle_flag,scientific_ui,battery_min_flag,magnetron_min_flag,foundry_min_flag,radiator_min_flag,pc_min_flag,gambling_min_flag],
+      ui: [audio_mute,audio_mute_one,audio_mute_two,audio_mute_three,audio_mute_four,audio_mute_allgen,audio_volume,chief_warp_check,night_shift,buymax_toggle_flag,rlab_autobuy_toggle_flag,machines_buymax_toggle_flag,scientific_ui,battery_min_flag,magnetron_min_flag,foundry_min_flag,radiator_min_flag,pc_min_flag,gambling_min_flag,tank_toggle_flag],
       upgrade_pbs: [one_upgrade_supply_limit_stage,two_upgrade_supply_limit_stage,three_upgrade_supply_limit_stage,four_upgrade_supply_limit_stage,one_upgrade_effectiveness_stage,two_upgrade_effectiveness_stage,three_upgrade_effectiveness_stage,four_upgrade_effectiveness_stage,one_upgrade_effectiveness_level,two_upgrade_effectiveness_level,three_upgrade_effectiveness_level,four_upgrade_effectiveness_level,supply_base],
       prices: [one_upgrade_supply_limit_price,two_upgrade_supply_limit_price,three_upgrade_supply_limit_price,four_upgrade_supply_limit_price,one_upgrade_effectiveness_price,two_upgrade_effectiveness_price,three_upgrade_effectiveness_price,four_upgrade_effectiveness_price,one_upgrade_generation_price,two_upgrade_generation_price,three_upgrade_generation_price,four_upgrade_generation_price,money_limit_upgrade_price],
       generators: [one_generation,two_generation,three_generation,four_generation,one_price,two_price,three_price,four_price,one_init_multiplier,two_init_multiplier,three_init_multiplier,four_init_multiplier,one_multiplier,two_multiplier,three_multiplier,four_multiplier],
@@ -6976,6 +7224,37 @@
           progress3(four_upgrade_effectiveness_stage,pb_four_upgrade_effectiveness,pb_four_effectiveness_indicator,label);
           if(four_upgrade_effectiveness_level % 2 === 0){sup_four_label.text("x100");}
           else{sup_four_label.text("x5");}
+
+
+          if(gameData.ui[19]){
+            tank_toggle_flag=gameData.ui[19];
+          }
+
+          //tank prices
+          if(tank_toggle_flag[0]==1){
+            one_tank_toggle.html('[1/<span class="blue">full</span>]');
+            setTankPrice(0);
+          }else{
+            power_price_check[0]=one_upgrade_effectiveness_price;
+          }
+          if(tank_toggle_flag[1]==1){
+            two_tank_toggle.html('[1/<span class="blue">full</span>]');
+            setTankPrice(1);
+          }else{
+            power_price_check[1]=two_upgrade_effectiveness_price;
+          }
+          if(tank_toggle_flag[2]==1){
+            three_tank_toggle.html('[1/<span class="blue">full</span>]');
+            setTankPrice(2);
+          }else{
+            power_price_check[2]=three_upgrade_effectiveness_price;
+          }
+          if(tank_toggle_flag[3]==1){
+            four_tank_toggle.html('[1/<span class="blue">full</span>]');
+            setTankPrice(3);
+          }else{
+            power_price_check[3]=four_upgrade_effectiveness_price;
+          }
 
 
 
@@ -7444,10 +7723,10 @@
     $element.prop('disabled', true).removeClass('button8').addClass('disabled8');
   }
   function button10Enable($element){
-    $element.prop('disabled', false).removeClass('disabled10').addClass('button10');
+    $element.prop('disabled', false).removeClass('disabled10').removeClass('activated10').addClass('button10');
   }
   function button10Disable($element){
-    $element.prop('disabled', true).removeClass('button10').addClass('disabled10');
+    $element.prop('disabled', true).removeClass('button10').removeClass('activated10').addClass('disabled10');
   }
   function magnetron_buttonEnable(){
     magnetron_button.prop('disabled', false).removeClass('magnetron_button_disarmed').addClass('magnetron_button_armed');
@@ -7586,6 +7865,16 @@
     rank_infobox.hide();rankinfo_window_flag=0;
     magicnumber_infobox.hide();magicnumber_window_flag=0;
     incorrectsave_infobox.hide();
+  }
+  function windowScroll(){
+    window.scroll({
+      top: 0,
+      left: 0,
+      behavior: 'smooth'
+    });
+  }
+  function warpViewWarning(){
+    PlayAudio(11);warp_view_warning.show();
   }
 
   function restartGenerators(){
@@ -7740,22 +8029,17 @@
     }
   }
 
-  function windowScroll(){
-    window.scroll({
-      top: 0,
-      left: 0,
-      behavior: 'smooth'
-    });
-  }
+
 
   function testFunc(){
 
     //testFunc() is used when for testing you need to trigger a bunch of things
 
-    warp_challenge1_flag=2;
-    warp_challenge2_flag=2;
-    warp_challenge3_flag=2;
-    warp_challenge4_flag=2;
+    warp_challenge1_flag=1;
+    warp_challenge2_flag=1;
+    warp_challenge3_flag=1;
+    warp_challenge4_flag=1;
+    buff_challenge1_flag=1;
 
 
 
@@ -7773,7 +8057,7 @@
 
   function progress_antimatter() {
 
-    var percent= (all_time_money - prevAntimatterCost) / (nextAntimatterCost - prevAntimatterCost) * 100;
+    var percent = (all_time_money - prevAntimatterCost) / (nextAntimatterCost - prevAntimatterCost) * 100;
     var progressBarWidth = percent * pb_antimatter.width() * 0.01;//have to do width, since it changes based on the amount of antimatter
     pb_antimatter_indicator.width(progressBarWidth);
   }

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat&display=swap" rel="stylesheet">
 
-<title>机械师 - Machinery</title>
+<title>机械装置 - Machinery</title>
 <link type="text/css" href="dark.css" rel="Stylesheet"/>
 <script type="text/javascript" src="jq/jquery-3.5.1.min.js"></script>
 <script type="text/javascript" src="jq/lz-string.min.js"></script>
@@ -39,7 +39,7 @@
     <br>
     <button class="button4">Let's go!</button>
     <br><br>
-    <p class="sm"><span class="red">Machinery [0.99.5]</span> Original release date: <b>September 2022</b>. Created by <a class="lv_site" href="https://louigiverona.com/?page=about" target="_blank">Louigi Verona</a></p>
+    <p class="sm"><span class="red">Machinery [0.99.52]</span> Original release date: <b>November 2022</b>. Created by <a class="lv_site" href="https://louigiverona.com/?page=about" target="_blank">Louigi Verona</a></p>
   </div>
 
   <!-- Settings -->
@@ -387,6 +387,14 @@
         </td>
       </tr>
     </table>
+    <table class="prestige_header" id="warp_view_warning">
+      <tr>
+        <td>
+          <br><br>
+          <span class="red">This is viewing mode. You can only activate this when you warp! <span class="blue">[x]</span></span><br>
+        </td>
+      </tr>
+    </table>
   </div>
 
   <br><br><br>
@@ -498,7 +506,17 @@
 
     <tr>
       <td class="item" width="50%">
-        <button class="button8" id="warp_rank2_upgrade">100M warp levels</button><br><br>
+        <table style="margin:auto" width="60%">
+          <tr>
+            <td width="33%" style="border:1px solid var(--darkgray)"><button class="button8" id="warp_rank2_training1_upgrade">▣5</button><br><br></td>
+            <td width="33%" style="border:1px solid var(--darkgray)"><button class="button8" id="warp_rank2_training2_upgrade">▣5</button><br><br></td>
+            <td style="border:1px solid var(--darkgray)"><button class="button8" id="warp_rank2_upgrade">100M warp levels</button><br><br></td>
+          </tr>
+        </table>
+
+
+
+
         <b>Rank of Floor Administrator</b><br>
         unlocks Lifeforms Scanner
       </td>
@@ -506,23 +524,9 @@
 
     <tr>
       <td class="item" width="50%">
-        <button class="button8" id="warp_rank2_training2_upgrade">▣5</button><br><br>
-        <b>Floor Administrator Training II</b><br>
-      </td>
-    </tr>
-
-    <tr>
-      <td class="item" width="50%">
-        <button class="button8" id="warp_rank2_training1_upgrade">▣5</button><br><br>
-        <b>Floor Administrator Training I</b><br>
-      </td>
-    </tr>
-
-    <tr>
-      <td class="item" width="50%">
         <button class="button8" id="warp_rank1_upgrade">1k warp levels</button><br><br>
         <b>Rank of Engineer</b><br>
-        unlocks Engineering Den
+        adds auxiliary power and automates power and charge limit upgrades
       </td>
     </tr>
 
@@ -551,7 +555,7 @@
         <button class="button2" id="warp_challenge2_upgrade">Claim</button><br><br>
         <b>Sharpshooter</b><br>
         <p><b>Challenge:</b> Warp with exactly 555 antimatter</p>
-        <p><b>Reward:</b> unlocks Couplings Stabilizer</p>
+        <p><b>Reward:</b> unlocks Couplings Stabilizer for the Engineering Den</p>
       </td>
     </tr>
 
@@ -674,7 +678,7 @@
       </td>
       <td id="warp_qm6_upgrade" class="item3">
         <b>Synchrotron</b><br>
-        A machine that collects Magnetron symbols to provide energy boosts
+        A machine that collects Magnetron symbols to provide overdrive boosts
       </td>
     </tr>
 
@@ -694,7 +698,7 @@
 <table class="main_container" id="powerplant_arena" style="display:none">
 
   <tr>
-    <td colspan="9"><br><br><b>Power plant upgrades</b></td>
+    <td colspan="9"><br><br><b>Power Plant Upgrades</b></td>
   </tr>
 
   <tr>
@@ -711,7 +715,7 @@
           </td>
           <td class="header">
             <b id="ppa_upgrade3_title" class="red">Black Hole Amplifier</b><br>
-            Boosts Antimatter Amplifier by x50
+            Boosts Antimatter Amplifier by x10
           </td>
           <td class="header">
             <b id="ppa_upgrade4_title" class="red">Rank of Chief Engineer</b><br>
@@ -742,6 +746,9 @@
       <table class="prestige_board2">
         <tr>
           <td colspan="9"><b>Power plants</b></td>
+        </tr>
+        <tr>
+          <td colspan="9">Building a new power plant resets your warp progress and applies Power Plant Upgrades</td>
         </tr>
         <tr>
 
@@ -905,7 +912,7 @@
 
           <tr id="chief_cc_info_box" style="display:none">
             <td colspan="3" class="machine_element1_help">
-              <p><b>Control Center</b> helps the Chief Engineer run the power plant. Your engineers will run the generators for you, as well as purchase and operate Battery and Magnetron. They will warp at an optimal point. If this is the very first warp, they will wait until they get 5 Antimatter first.</p>
+              <p><b>Control Center</b> helps the Chief Engineer run the power plant. Your engineers will run the generators for you, as well as purchase and operate Battery and Magnetron. They will always warp to ensure that Repopulation of the Lifeforms Scanner is at 100%. If this is the very first warp, they will wait until they get 5 Antimatter first.</p>
               <p>As Chief Engineer, you start with all the automation warp upgrades available to you, although the starting warp price is also higher. Switching delegation to OFF will allow you to run the power plant manually.</p>
               <p style="text-align:center;"><button id="chief_cc_info_close" class="button3">close</button></p>
             </td>
@@ -1071,6 +1078,7 @@
             <tr>
               <td class="upgrade_description">
                 Power <span class="blue" id="one_effectiveness_label">[1]</span><sup id="sup_one_label" class="silver">x</sup>
+                <sup id="one_tank_toggle" style="position:absolute;right:10px;letter-spacing:0.5em;cursor:pointer;" class="silver">[<span class="blue">1</span>/full]</sup>
               </td>
               <td class="button_holder">
                 <button id="one_upgrade_effectiveness" class="button1">x</button>
@@ -1116,6 +1124,7 @@
             <tr>
               <td class="upgrade_description">
                 Power <span class="blue" id="two_effectiveness_label">[1]</span><sup id="sup_two_label" class="silver">x</sup>
+                <sup id="two_tank_toggle" style="position:absolute;right:10px;letter-spacing:0.5em;cursor:pointer;" class="silver">[<span class="blue">1</span>/full]</sup>
               </td>
               <td class="button_holder">
                 <button id="two_upgrade_effectiveness" class="button1">x</button>
@@ -1162,6 +1171,7 @@
             <tr>
               <td class="upgrade_description">
                 Power <span class="blue" id="three_effectiveness_label">[1]</span><sup id="sup_three_label" class="silver">x</sup>
+                <sup id="three_tank_toggle" style="position:absolute;right:10px;letter-spacing:0.5em;cursor:pointer;" class="silver">[<span class="blue">1</span>/full]</sup>
               </td>
               <td class="button_holder">
                 <button id="three_upgrade_effectiveness" class="button1">x</button>
@@ -1207,6 +1217,7 @@
             <tr>
               <td class="upgrade_description">
                 Power <span class="blue" id="four_effectiveness_label">[1]</span><sup id="sup_four_label" class="silver">x</sup>
+                <sup id="four_tank_toggle" style="position:absolute;right:10px;letter-spacing:0.5em;cursor:pointer;" class="silver">[<span class="blue">1</span>/full]</sup>
               </td>
               <td class="button_holder">
                 <button id="four_upgrade_effectiveness" class="button1">x</button>
@@ -1663,7 +1674,7 @@
         <tr>
           <td colspan="2" class="machine_element3center" style="color:#f48c37;">
             Probability <span class="blue" id="magnetron_probability_max_label">1:1000</span><br>
-            <span class="red" id="magnetron_probability_game_label" style="font-size:12pt">⎔ ⎊ ⎔ ⍿</span>
+            <span class="red" id="magnetron_probability_game_label" style="font-size:12pt;line-height:1em;">⎔ ⎊ ⎔ ⍿</span>
           </td>
         </tr>
 
@@ -1912,7 +1923,8 @@
 
         <tr id="pc_info_box" style="display:none">
           <td colspan="2" class="machine_element1_help">
-            <p><b>Particle Collector</b> attracts positrons and constructs positron blocks. Positron blocks are used to finalize power plants.</p>
+            <p><b>Particle Collector</b> attracts positrons and constructs positron cubes. Positron cubes are used to finalize power plants.</p>
+            <p>Positrons and positron cubes are preserved across warps.</p>
             <p style="text-align:center;"><button id="pc_info_close" class="button3">close</button></p>
           </td>
         </tr>
@@ -2002,16 +2014,16 @@
 <script src="//g8hh.github.io/static/js/kf.js"></script>
 <!-- 客服 结束 -->
 <!--站长统计-->
-<div style="display: none"><script>
-  var _hmt = _hmt || [];
-  (function() {
-    var hm = document.createElement("script");
-    hm.src = "https://hm.baidu.com/hm.js?f237591d5976f87ca2e06b38c3658d9c";
-    var s = document.getElementsByTagName("script")[0]; 
-    s.parentNode.insertBefore(hm, s);
-  })();
-  </script>
-  
-      </div>
+   <div style="display: none"><script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?f237591d5976f87ca2e06b38c3658d9c";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+    </div>
 </body>
 </html>
