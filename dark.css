@@ -251,7 +251,7 @@ button.button12{/*rank block: show descr button*/
 	border:1px solid var(--darkgray);
 	cursor: pointer;
 }
-button.button13{/* challenges done */
+button.button13:disabled{/* challenges done */
 	background-color:#000;
 	font-size:9pt;
 	color:var(--purple);
@@ -965,7 +965,7 @@ table.menutabs{
 }
 
 .small_description{
-	position:relative;/*so that information icons can be position as absolute*/
+	position:relative;/*so that information icons can be positioned as absolute*/
 	padding: 10px;
 	border: 1px solid #333;
 	color: #30b8d0;
@@ -999,6 +999,7 @@ table.menutabs{
 }
 
 .upgrade_description{
+  position:relative;/*so that information icons can be positioned as absolute*/
 	width: 50%;
 	padding: 2px;
 	border: 1px solid #333;
