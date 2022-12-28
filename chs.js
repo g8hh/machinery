@@ -176,7 +176,7 @@ var cnItems = {
     "lists and tracks the status of low orbit missions.": "列出并跟踪低轨道任务的状态。",
     "Louigi Verona": "路易吉·维罗纳",
     "Louigi Verona's Workshop": "路易吉·维罗纳的工作室",
-    "Machinery": "机械",
+    "Machinery": "机械装置",
     "Machines": "机器",
     "Magnetron": "磁控管",
     "Magnetron Alerting System": "磁控管警报系统",
